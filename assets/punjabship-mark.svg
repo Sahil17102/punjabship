@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-labelledby="title">
+  <title id="title">PunjabShip mark</title>
+  <defs>
+    <linearGradient id="pBlue" x1="20" y1="8" x2="64" y2="88" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1daeff"/>
+      <stop offset="1" stop-color="#062a62"/>
+    </linearGradient>
+  </defs>
+  <path d="M24 10h38c17 0 27 10 27 24 0 15-11 24-28 24H45V43h15c8 0 12-3 12-9s-4-9-12-9H42v61H24V10Z" fill="url(#pBlue)"/>
+  <path d="M4 72c26-22 56-36 92-39-29 8-55 20-79 38-7 5-11 10-15 16 0-6 1-11 2-15Z" fill="#1298e8"/>
+  <path d="m66 24 18-6 8 4-14 8 12 16-8 3-19-14-17 10-6-4 16-12-16-10 7-4 19 9Z" fill="#061f4e"/>
+</svg>

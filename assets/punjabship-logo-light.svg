@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 430 120" role="img" aria-labelledby="title desc">
+  <title id="title">PunjabShip</title>
+  <desc id="desc">PunjabShip clean white plane logo with Ship The World tagline</desc>
+  <defs>
+    <linearGradient id="shipBlue" x1="255" y1="62" x2="390" y2="62" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#18c5ff"/>
+      <stop offset="1" stop-color="#0788f2"/>
+    </linearGradient>
+    <linearGradient id="iconBlue" x1="18" y1="60" x2="150" y2="60" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#18c5ff"/>
+      <stop offset=".52" stop-color="#2ca8ff"/>
+      <stop offset="1" stop-color="#ffffff"/>
+    </linearGradient>
+  </defs>
+  <g aria-hidden="true">
+    <path d="M16 82c30-22 69-36 118-42-37 14-68 29-97 51-11 8-20 17-26 28 0-13 2-25 5-37Z" fill="#18c5ff"/>
+    <path d="M34 72 116 22c9-5 18-4 25 3l9 9-53 34 38 37-19 9-51-31-39 25-10-9 18-27Z" fill="url(#iconBlue)"/>
+    <path d="M72 53h45c8 0 13 3 17 8-7-3-15-4-25-4H69l3-4Z" fill="#ffffff" opacity=".38"/>
+  </g>
+  <text x="151" y="73" font-family="Arial, Helvetica, sans-serif" font-size="48" font-weight="800" font-style="italic" letter-spacing="-2.3">
+    <tspan fill="#ffffff">Punjab</tspan><tspan fill="url(#shipBlue)">Ship</tspan>
+  </text>
+  <text x="243" y="101" fill="#d8deea" font-family="Arial, Helvetica, sans-serif" font-size="9.8" font-weight="700" letter-spacing="7.2">SHIP THE WORLD</text>
+</svg>
