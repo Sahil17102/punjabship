@@ -1,0 +1,15 @@
+{
+  "name": "PunjabShip Client",
+  "short_name": "PunjabShip",
+  "icons": [
+    {
+      "src": "/logo/punjabship-favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ],
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#0877C9",
+  "background_color": "#ffffff"
+}

@@ -1,0 +1,64 @@
+.glass-ribbon-container {
+  position: absolute;
+  z-index: 999;
+  pointer-events: none; /* optional: prevents blocking interactions */
+}
+
+.glass-ribbon-container.top-right {
+  top: 30px;
+  right: -48px;
+  transform: rotate(45deg);
+  transform-origin: top right;
+}
+
+.glass-ribbon-container.top-left {
+  top: 16px;
+  left: -48px;
+  transform: rotate(-45deg);
+  transform-origin: top left;
+}
+
+.glass-ribbon-container.bottom-right {
+  bottom: 16px;
+  right: -48px;
+  transform: rotate(-45deg);
+  transform-origin: bottom right;
+}
+
+.glass-ribbon-container.bottom-left {
+  bottom: 16px;
+  left: -48px;
+  transform: rotate(45deg);
+  transform-origin: bottom left;
+}
+
+.glass-ribbon {
+  width: 90px;
+  height: 26px;
+  line-height: 36px;
+  text-align: center;
+  font-weight: 600;
+  font-size: 14px;
+  color: white;
+  letter-spacing: 1px;
+  border-radius: 6px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ribbon-count {
+  background-color: rgba(0, 0, 0, 0.4);
+  font-size: 12px;
+  padding: 2px 6px;
+  margin-left: 8px;
+  border-radius: 12px;
+  font-weight: 500;
+  color: #fff;
+}

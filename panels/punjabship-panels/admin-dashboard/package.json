@@ -1,0 +1,94 @@
+{
+	"name": "purity-dashboard-react",
+	"version": "2.0.2",
+	"private": true,
+	"homepage": ".",
+	"dependencies": {
+		"@chakra-ui/icons": "^1.1.5",
+		"@chakra-ui/react": "1.8.8",
+		"@chakra-ui/system": "^1.12.1",
+		"@chakra-ui/theme-tools": "^1.3.6",
+		"@emotion/cache": "^11.7.1",
+		"@emotion/react": "^11.8.1",
+		"@emotion/styled": "^11.8.1",
+		"@fontsource-variable/andada-pro": "^5.3.0",
+		"@fontsource-variable/epilogue": "^5.3.0",
+		"@fontsource-variable/hahmlet": "^5.3.0",
+		"@fontsource/open-sans": "^4.5.0",
+		"@fontsource/raleway": "^4.5.0",
+		"@fontsource/roboto": "^4.5.8",
+		"@tabler/icons-react": "^3.34.1",
+		"@tanstack/react-query": "^5.84.1",
+		"@tanstack/react-query-devtools": "^5.84.1",
+		"ajv": "^8.17.1",
+		"apexcharts": "^3.27.3",
+		"axios": "^1.11.0",
+		"classnames": "2.3.1",
+		"cross-env": "^7.0.3",
+		"draft-js": "^0.11.7",
+		"draftjs-to-html": "^0.9.1",
+		"framer-motion": "^4.1.17",
+		"gulp": "4.0.2",
+		"gulp-append-prepend": "1.0.9",
+		"immutable": "^4.3.8",
+		"jwt-decode": "^4.0.0",
+		"match-sorter": "6.3.0",
+		"moment": "^2.30.1",
+		"nouislider": "15.0.0",
+		"papaparse": "^5.5.3",
+		"react": "18",
+		"react-apexcharts": "1.3.9",
+		"react-big-calendar": "1.8.5",
+		"react-bootstrap-sweetalert": "5.2.0",
+		"react-day-picker": "^9.8.1",
+		"react-dom": "18",
+		"react-draft-wysiwyg": "^1.15.0",
+		"react-github-btn": "^1.2.1",
+		"react-icons": "^4.2.0",
+		"react-jvectormap": "0.0.16",
+		"react-remove-scroll": "^2.7.1",
+		"react-router-dom": "5.2.1",
+		"react-scripts": "5.0.0",
+		"sass": "^1.89.2",
+		"socket.io-client": "^4.8.1",
+		"stylis": "^4.0.13",
+		"stylis-plugin-rtl": "^2.1.1",
+		"zustand": "^5.0.7"
+	},
+	"resolutions": {
+		"react-error-overlay": "6.0.11"
+	},
+	"scripts": {
+		"start": "react-scripts start",
+		"build": "cross-env CI=false cross-env DISABLE_ESLINT_PLUGIN=true cross-env GENERATE_SOURCEMAP=false cross-env PUBLIC_URL=/ react-scripts build && gulp licenses",
+		"test": "react-scripts test --env=jsdom",
+		"eject": "react-scripts eject",
+		"deploy": "npm run build",
+		"lint:check": "eslint . --ext=js,jsx;  exit 0",
+		"lint:fix": "eslint . --ext=js,jsx --fix;  exit 0",
+		"install:clean": "rm -rf node_modules/ && rm -rf package-lock.json && npm install --legacy-peer-deps && npm start"
+	},
+	"optionalDependencies": {
+		"@babel/core": "7.14.0",
+		"fsevents": "^2.3.3",
+		"typescript": "4.2.4"
+	},
+	"devDependencies": {
+		"@babel/plugin-transform-react-jsx-source": "^7.14.5",
+		"eslint-config-prettier": "8.3.0",
+		"eslint-plugin-prettier": "3.4.0",
+		"prettier": "2.2.1"
+	},
+	"browserslist": {
+		"production": [
+			"cover 99.8%",
+			"not dead",
+			"not OperaMini all"
+		],
+		"development": [
+			"cover 99.8%",
+			"not dead",
+			"not OperaMini all"
+		]
+	}
+}

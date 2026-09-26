@@ -1,0 +1,76 @@
+.loader-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: rgba(243, 239, 250, 0.88);
+  backdrop-filter: blur(10px);
+}
+
+.loader-overlay.night {
+  background: rgba(23, 23, 26, 0.52);
+}
+
+.loader-content {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.logo-container {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 190px;
+  height: 190px;
+  border-radius: 36px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 243, 240, 0.98));
+  box-shadow: 0 24px 60px rgba(20, 20, 20, 0.14);
+}
+
+.loader-logo {
+  position: relative;
+  z-index: 2;
+  width: 120px;
+  height: auto;
+  border-radius: 18px;
+  animation: gentleScale 1.7s ease-in-out infinite;
+}
+
+.pulse-ring {
+  position: absolute;
+  inset: 18px;
+  border-radius: 30px;
+  border: 1px solid rgba(232, 85, 0, 0.12);
+  animation: pulseRing 1.8s ease-out infinite;
+}
+
+.pulse-ring-delay {
+  animation-delay: 0.9s;
+}
+
+@keyframes gentleScale {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.06);
+    opacity: 0.88;
+  }
+}
+
+@keyframes pulseRing {
+  from {
+    transform: scale(0.92);
+    opacity: 0.75;
+  }
+  to {
+    transform: scale(1.06);
+    opacity: 0;
+  }
+}

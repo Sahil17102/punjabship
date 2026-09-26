@@ -1,0 +1,17 @@
+:root {
+  --rdp-background-color: transparent;
+}
+
+.dark .rdp {
+  --rdp-cell-size: 40px;
+  --rdp-accent-color: #0877C9;
+  --rdp-background-color: #1A1A1A; /* text-primary */
+  --rdp-accent-color-dark: #0564AD;
+  --rdp-text-color: #F5F7FA; /* bg-default */
+}
+
+.light .rdp {
+  --rdp-accent-color: #0877C9;
+  --rdp-accent-color-dark: #0564AD;
+  --rdp-text-color: #1A1A1A; /* text-primary */
+}

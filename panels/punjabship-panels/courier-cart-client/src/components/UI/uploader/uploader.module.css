@@ -1,0 +1,12 @@
+.customLabel {
+  color: #aaa;
+  cursor: pointer;
+  transition: color 0.3s ease;
+  margin-left: 3px;
+  margin-bottom: 5=px;
+}
+
+.required {
+  color: red;
+  margin-left: 4px;
+}

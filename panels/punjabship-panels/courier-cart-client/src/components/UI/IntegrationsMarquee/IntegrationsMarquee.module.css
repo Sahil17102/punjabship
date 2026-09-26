@@ -1,0 +1,61 @@
+.marqueeWrapper {
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.marquee {
+  display: inline-flex;
+  width: max-content;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+.marqueeLeft {
+  animation-name: scrollLeft;
+  animation-duration: 20s;
+}
+
+.marqueeRight {
+  animation-name: scrollRight;
+  animation-duration: 20s;
+}
+
+.logoBox {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 0 12px;
+}
+
+.logoImg {
+  max-height: 32px;
+  max-width: 90px;
+  object-fit: contain;
+  filter: grayscale(20%);
+  opacity: 0.85;
+  transition: all 0.3s ease;
+}
+
+.logoImg:hover {
+  filter: grayscale(0%);
+  opacity: 1;
+}
+
+@keyframes scrollLeft {
+  0% {
+    transform: translateX(0%);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes scrollRight {
+  0% {
+    transform: translateX(-50%);
+  }
+  100% {
+    transform: translateX(0%);
+  }
+}

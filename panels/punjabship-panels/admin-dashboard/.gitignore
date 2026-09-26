@@ -1,0 +1,25 @@
+# Node
+node_modules/
+
+# Builds
+build/
+dist/
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editors/OS
+.DS_Store
+.vscode/
+.idea/
+node_modules
+yarn.lock
+package-lock.json
+build

@@ -28,3 +28,51 @@ services:
       - path: /*
         name: Referrer-Policy
         value: strict-origin-when-cross-origin
+
+  - type: web
+    name: punjabshipclient1
+    runtime: static
+    rootDir: panels/punjabship-panels/courier-cart-client
+    buildCommand: npm ci && npm run build
+    staticPublishPath: ./dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_URL
+        value: https://punjabship-logisticbackend.onrender.com/api
+      - key: VITE_APP_SOCKET_URL
+        value: https://punjabship-logisticbackend.onrender.com
+      - key: VITE_ADMIN_URL
+        value: https://punjabshipadmin.onrender.com
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+
+  - type: web
+    name: punjabshipadmin
+    runtime: static
+    rootDir: panels/punjabship-panels/admin-dashboard
+    buildCommand: npm install --legacy-peer-deps && npm run build
+    staticPublishPath: ./build
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: REACT_APP_API_BASE_URL
+        value: https://punjabship-logisticbackend.onrender.com/api
+      - key: REACT_APP_SOCKET_URL
+        value: https://punjabship-logisticbackend.onrender.com
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin

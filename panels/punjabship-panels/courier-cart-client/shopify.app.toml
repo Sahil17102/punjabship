@@ -1,0 +1,32 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+name = "PunjabShip"
+application_url = "http://127.0.0.1:5174/shopify/install"
+embedded = true
+client_id = "6e639dd1d60a99799681978b48d3482c"
+
+[auth]
+redirect_urls = [
+  "http://127.0.0.1:5174/api/integrations/shopify/oauth/callback"
+]
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_orders,write_orders,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders"
+optional_scopes = [ ]
+use_legacy_install_flow = false
+
+[webhooks]
+api_version = "2026-07"
+
+  [[webhooks.subscriptions]]
+  uri = "http://127.0.0.1:5004/api/webhooks/shopify/order-created"
+  topics = [ "orders/create", "orders/updated", "orders/cancelled" ]
+
+  [[webhooks.subscriptions]]
+  uri = "http://127.0.0.1:5004/api/webhooks/shopify/compliance"
+  compliance_topics = [ "customers/data_request", "customers/redact", "shop/redact" ]
+
+  [[webhooks.subscriptions]]
+  uri = "http://127.0.0.1:5004/api/webhooks/shopify/app-uninstalled"
+  topics = [ "app/uninstalled" ]

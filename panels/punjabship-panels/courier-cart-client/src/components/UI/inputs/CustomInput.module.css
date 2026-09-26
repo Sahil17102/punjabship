@@ -1,0 +1,23 @@
+.inputContainer {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.customLabel {
+  cursor: pointer;
+  transition: color 0.3s ease;
+}
+
+.customLabel:hover {
+  color: #6f22c6;
+}
+
+.required {
+  color: red;
+  margin-left: 4px;
+}
+
+.textFieldRoot {
+  width: 100%;
+}

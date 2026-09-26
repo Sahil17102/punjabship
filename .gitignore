@@ -6,3 +6,6 @@ dist/
 app
 app.exe
 .DS_Store
+panels/*.log
+panels/local-data.json
+panels/**/build/
