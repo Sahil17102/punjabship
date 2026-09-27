@@ -1,5 +1,21 @@
 services:
   - type: web
+    name: punjabship-logisticbackend
+    runtime: node
+    buildCommand: echo "No build required"
+    startCommand: node panels/local-api.mjs
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: DEMO_OTP
+        value: 123456
+      - key: ADMIN_EMAIL
+        value: admin@punjabshiplogistics.com
+      - key: ADMIN_PASSWORD
+        value: Demo@123
+
+  - type: web
     name: punjabship
     runtime: static
     buildCommand: npm run build
