@@ -39,6 +39,7 @@ const createSeller = (email, overrides = {}) => {
     currentPlanId: null,
     currentB2CPlanName: null,
     currentB2BPlanName: null,
+    walletBalance: 5000,
     createdAt: now,
     updatedAt: now,
     ...overrides,
@@ -73,7 +74,13 @@ const orders = Array.from({ length: 12 }, (_, i) => ({
 }))
 
 const defaultState = {
-  users: [demoUser], orders, pendingOtps: {},
+  users: [demoUser], orders, pendingOtps: {}, pickupAddresses: {},
+  plans: [
+    { id: 'starter-b2c', name: 'Starter B2C', business_type: 'b2c', is_active: true },
+    { id: 'growth-b2c', name: 'Growth B2C', business_type: 'b2c', is_active: true },
+    { id: 'starter-b2b', name: 'Starter B2B', business_type: 'b2b', is_active: true },
+    { id: 'growth-b2b', name: 'Growth B2B', business_type: 'b2b', is_active: true },
+  ],
   preferences: {
     widgetVisibility: {},
     widgetOrder: ['quickStats', 'quickActions', 'insights', 'actionItems', 'performanceMetrics', 'ordersTrend', 'financialHealth', 'recentActivity', 'todaysOperations', 'orderStatusChart', 'courierComparison', 'metricsOverview', 'courierPerformance', 'topDestinations'],
@@ -84,6 +91,8 @@ const state = existsSync(dataFile) ? JSON.parse(readFileSync(dataFile, 'utf8')) 
 if (!Array.isArray(state.users)) state.users = state.user ? [state.user] : [demoUser]
 state.orders ??= orders
 state.pendingOtps ??= {}
+state.pickupAddresses ??= {}
+state.plans ??= defaultState.plans
 state.preferences ??= defaultState.preferences
 
 const save = () => writeFileSync(dataFile, JSON.stringify(state, null, 2))
@@ -159,6 +168,28 @@ const applyOnboarding = (seller, step, data) => {
   seller.updatedAt = new Date().toISOString()
 }
 
+const merchantReadiness = (seller) => {
+  const walletBalance = Number(seller?.walletBalance ?? 5000)
+  const requiredWalletBalance = 100
+  const hasAssignedPlan = Boolean(seller?.currentPlanId || seller?.currentB2CPlanId || seller?.currentB2BPlanId)
+  const hasPickupAddress = Boolean(state.pickupAddresses[seller?.id]?.length)
+  const result = {
+    onboardingComplete: Boolean(seller?.onboardingComplete),
+    approved: Boolean(seller?.approved),
+    hasCompanyInfo: Boolean(seller?.companyInfo?.businessName),
+    kycVerified: seller?.domesticKyc?.status === 'verified',
+    hasAssignedPlan,
+    assignedPlanName: seller?.currentPlanName || seller?.currentB2CPlanName || seller?.currentB2BPlanName || null,
+    assignedPlanId: seller?.currentPlanId || seller?.currentB2CPlanId || seller?.currentB2BPlanId || null,
+    hasPickupAddress,
+    walletReady: walletBalance >= requiredWalletBalance,
+    walletBalance,
+    requiredWalletBalance,
+    isEmployee: false,
+  }
+  return { ...result, isReady: Object.entries(result).every(([key, value]) => key.startsWith('assignedPlan') || key === 'isEmployee' || Boolean(value)) }
+}
+
 http.createServer(async (req, res) => {
   const origin = String(req.headers.origin || '')
   const corsOrigin = allowedOrigin(origin)
@@ -228,7 +259,47 @@ http.createServer(async (req, res) => {
     }
     if (path === '/api/profile/readiness') {
       const seller = currentSeller(req)
-      return send({ onboardingComplete: Boolean(seller?.onboardingComplete), approved: Boolean(seller?.approved), hasCompanyInfo: Boolean(seller?.companyInfo?.businessName), kycVerified: seller?.domesticKyc?.status === 'verified', hasAssignedPlan: Boolean(seller?.currentPlanId), assignedPlanName: seller?.currentPlanName, hasPickupAddress: false, walletReady: true, walletBalance: 5000, requiredWalletBalance: 100, isEmployee: false, isReady: Boolean(seller?.onboardingComplete) })
+      if (!seller) return send({ error: 'Authentication required.' }, 401)
+      return send(merchantReadiness(seller))
+    }
+    if (path === '/api/profile/kyc' && req.method === 'GET') {
+      const seller = currentSeller(req)
+      if (!seller) return send({ error: 'Authentication required.' }, 401)
+      return send({ success: true, kyc: seller.domesticKyc || { status: 'pending' } })
+    }
+    if (path === '/api/profile/kyc' && req.method === 'POST') {
+      const seller = currentSeller(req)
+      if (!seller) return send({ error: 'Authentication required.' }, 401)
+      seller.domesticKyc = { ...seller.domesticKyc, ...body, status: 'verification_in_progress', updatedAt: new Date().toISOString() }
+      seller.updatedAt = new Date().toISOString()
+      save()
+      return send({ success: true, message: 'KYC submitted for verification.', kyc: seller.domesticKyc })
+    }
+    if (path === '/api/pickup-addresses' && req.method === 'GET') {
+      const seller = currentSeller(req)
+      if (!seller) return send({ error: 'Authentication required.' }, 401)
+      const addresses = state.pickupAddresses[seller.id] || []
+      return send({ success: true, data: addresses, totalCount: addresses.length })
+    }
+    if (path === '/api/pickup-addresses' && req.method === 'POST') {
+      const seller = currentSeller(req)
+      if (!seller) return send({ error: 'Authentication required.' }, 401)
+      const now = new Date().toISOString()
+      const address = { ...body, id: `pickup-${randomUUID()}`, userId: seller.id, createdAt: now, updatedAt: now }
+      state.pickupAddresses[seller.id] = [...(state.pickupAddresses[seller.id] || []), address]
+      save()
+      return send(address, 201)
+    }
+    const pickupMatch = path.match(/^\/api\/pickup-addresses\/([^/]+)$/)
+    if (pickupMatch && req.method === 'PATCH') {
+      const seller = currentSeller(req)
+      if (!seller) return send({ error: 'Authentication required.' }, 401)
+      const addresses = state.pickupAddresses[seller.id] || []
+      const address = addresses.find((item) => item.id === pickupMatch[1])
+      if (!address) return send({ error: 'Pickup address not found.' }, 404)
+      Object.assign(address, body, { updatedAt: new Date().toISOString() })
+      save()
+      return send({ success: true, data: address })
     }
     if (path === '/api/profile' && req.method === 'PATCH') {
       const seller = currentSeller(req)
@@ -256,6 +327,59 @@ http.createServer(async (req, res) => {
       const limit = Math.max(1, Number(requestUrl.searchParams.get('limit') || 20))
       const matches = state.users.filter((item) => JSON.stringify(item).toLowerCase().includes(search)).slice(0, limit)
       return send({ success: true, data: matches.map((item) => ({ value: item.id, id: item.id, label: item.companyInfo?.businessName || item.displayName || item.email, email: item.email })) })
+    }
+    const approveUserMatch = path.match(/^\/api\/admin\/users\/([^/]+)\/approve$/)
+    if (approveUserMatch && req.method === 'PATCH') {
+      const seller = state.users.find((item) => item.id === approveUserMatch[1])
+      if (!seller) return send({ error: 'Seller not found.' }, 404)
+      seller.approved = true
+      seller.approvedAt = new Date().toISOString()
+      seller.updatedAt = seller.approvedAt
+      save()
+      return send({ success: true, message: 'Seller account approved.', user: seller })
+    }
+    if (path === '/api/plans' && req.method === 'GET') return send({ success: true, data: state.plans })
+    if (path === '/api/plans/assign-to-user' && req.method === 'POST') {
+      const seller = state.users.find((item) => item.id === body.userId)
+      const plan = state.plans.find((item) => item.id === body.planId)
+      if (!seller) return send({ error: 'Seller not found.' }, 404)
+      if (!plan) return send({ error: 'Plan not found.' }, 404)
+      const businessType = body.businessType === 'b2b' ? 'b2b' : 'b2c'
+      if (businessType === 'b2b') {
+        seller.currentB2BPlanId = plan.id
+        seller.currentB2BPlanName = plan.name
+      } else {
+        seller.currentB2CPlanId = plan.id
+        seller.currentB2CPlanName = plan.name
+        seller.currentPlanId = plan.id
+        seller.currentPlanName = plan.name
+      }
+      seller.updatedAt = new Date().toISOString()
+      save()
+      return send({ success: true, message: `${businessType.toUpperCase()} plan assigned.`, user: seller })
+    }
+    const adminKycMatch = path.match(/^\/api\/admin\/users\/([^/]+)\/kyc$/)
+    if (adminKycMatch && req.method === 'GET') {
+      const seller = state.users.find((item) => item.id === adminKycMatch[1])
+      return seller ? send({ success: true, kyc: seller.domesticKyc || { status: 'pending' } }) : send({ error: 'Seller not found.' }, 404)
+    }
+    const approveKycMatch = path.match(/^\/api\/admin\/users\/kyc\/approve\/([^/]+)$/)
+    if (approveKycMatch && req.method === 'POST') {
+      const seller = state.users.find((item) => item.id === approveKycMatch[1])
+      if (!seller) return send({ error: 'Seller not found.' }, 404)
+      seller.domesticKyc = { ...seller.domesticKyc, status: 'verified', rejectionReason: null, updatedAt: new Date().toISOString() }
+      seller.updatedAt = new Date().toISOString()
+      save()
+      return send({ success: true, message: 'KYC approved.', kyc: seller.domesticKyc })
+    }
+    const rejectKycMatch = path.match(/^\/api\/admin\/users\/kyc\/(reject|revoke)\/([^/]+)$/)
+    if (rejectKycMatch && req.method === 'POST') {
+      const seller = state.users.find((item) => item.id === rejectKycMatch[2])
+      if (!seller) return send({ error: 'Seller not found.' }, 404)
+      seller.domesticKyc = { ...seller.domesticKyc, status: rejectKycMatch[1] === 'reject' ? 'rejected' : 'verification_in_progress', rejectionReason: body.reason || null, updatedAt: new Date().toISOString() }
+      seller.updatedAt = new Date().toISOString()
+      save()
+      return send({ success: true, message: `KYC ${rejectKycMatch[1]}d.`, kyc: seller.domesticKyc })
     }
     const userInfoMatch = path.match(/^\/api\/user\/user-info\/([^/]+)$/)
     if (userInfoMatch && req.method === 'GET') {

@@ -85,11 +85,11 @@ const Home = () => {
 
   const quickActions = [
     {
-      label: 'Create Shipment',
+      label: isMerchantReady ? 'Create Shipment' : 'Complete Account Setup',
       icon: MdOutlineAddShoppingCart,
-      path: '/orders/create',
+      path: isMerchantReady ? '/orders/create' : '/account-readiness',
       color: '#EF4444',
-      desc: 'Start a new order',
+      desc: isMerchantReady ? 'Start a new order' : 'Approval, KYC, plan and pickup required',
     },
     {
       label: 'All Shipments',
@@ -387,14 +387,14 @@ const Home = () => {
             </Button>
             <Button
               variant="contained"
-              onClick={() => navigate('/orders/create')}
+              onClick={() => navigate(isMerchantReady ? '/orders/create' : '/account-readiness')}
               sx={{
                 textTransform: 'none',
                 fontWeight: 700,
                 boxShadow: '0 12px 24px rgba(8,119,201,0.16)',
               }}
             >
-              Create Shipment
+              {isMerchantReady ? 'Create Shipment' : 'Complete Account Setup'}
             </Button>
           </Stack>
         </Stack>
