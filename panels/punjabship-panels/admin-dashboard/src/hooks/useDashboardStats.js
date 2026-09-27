@@ -1,13 +1,19 @@
 import { useQuery } from '@tanstack/react-query'
-import { getAdminDashboardStats } from 'services/dashboard.service'
+import { getAdminDashboardStats, readAdminDashboardCache } from 'services/dashboard.service'
 
 export const useDashboardStats = (filters = {}) => {
+  const cached = readAdminDashboardCache(filters)
+
   return useQuery({
     queryKey: ['admin-dashboard-stats', filters],
     queryFn: () => getAdminDashboardStats(filters),
-    staleTime: 15 * 1000,
-    refetchOnWindowFocus: true,
-    refetchInterval: 30 * 1000,
+    initialData: cached?.data,
+    initialDataUpdatedAt: cached?.savedAt,
+    staleTime: 2 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: true,
+    refetchInterval: false,
+    retry: 1,
   })
 }
-

@@ -151,16 +151,20 @@ export default function Dashboard() {
     ['Freight per order', formatCurrency(averageFreight)],
   ]
 
-  if (isLoading) {
-    return <Flex minH="65vh" align="center" justify="center"><Stack align="center" spacing={3}><Spinner color="brand.500" /><Text color="gray.500" fontSize="sm">Loading operations data...</Text></Stack></Flex>
-  }
-
-  if (error) {
-    return <Flex minH="65vh" align="center" justify="center"><Stack align="center" spacing={3}><Text color="red.600" fontWeight="700">Dashboard data could not be loaded.</Text><Button size="sm" onClick={() => refetch()} leftIcon={<IconRefresh size={16} />}>Try again</Button></Stack></Flex>
-  }
-
   return (
     <Box maxW="1800px" mx="auto">
+      {isLoading && !statsData ? (
+        <Flex align="center" gap={2} px={3} py={2} mb={3} bg="blue.50" border="1px solid" borderColor="blue.100" borderRadius="6px">
+          <Spinner size="xs" color="blue.500" />
+          <Text color="blue.700" fontSize="sm">Connecting to live operations; the dashboard will update automatically.</Text>
+        </Flex>
+      ) : null}
+      {error && !statsData ? (
+        <Flex align="center" justify="space-between" gap={3} px={3} py={2} mb={3} bg="red.50" border="1px solid" borderColor="red.100" borderRadius="6px">
+          <Text color="red.700" fontSize="sm">Live data is temporarily unavailable. Dashboard controls remain usable.</Text>
+          <Button size="xs" onClick={() => refetch()} leftIcon={<IconRefresh size={14} />}>Retry</Button>
+        </Flex>
+      ) : null}
       <Box
         p={{ base: 4, md: 5 }}
         mb={4}

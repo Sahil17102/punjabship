@@ -59,7 +59,11 @@ const buildServiceabilitySeed = () => {
     .map(toServiceabilityLocation)
 }
 
-const seededServiceabilityLocations = buildServiceabilitySeed()
+let seededServiceabilityLocations = null
+const getSeededServiceabilityLocations = () => {
+  if (!seededServiceabilityLocations) seededServiceabilityLocations = buildServiceabilitySeed()
+  return seededServiceabilityLocations
+}
 
 const createSeller = (email, overrides = {}) => {
   const now = new Date().toISOString()
@@ -154,7 +158,7 @@ state.preferences ??= defaultState.preferences
 const save = () => writeFileSync(dataFile, JSON.stringify(state, null, 2))
 const serviceabilityLocations = () => {
   const deleted = new Set(state.deletedServiceabilityLocationIds)
-  const seeded = seededServiceabilityLocations
+  const seeded = getSeededServiceabilityLocations()
     .filter((location) => !deleted.has(location.id))
     .map((location) => ({ ...location, ...(state.serviceabilityOverrides[location.id] || {}) }))
   return [...seeded, ...state.customServiceabilityLocations.filter((location) => !deleted.has(location.id))]
@@ -194,6 +198,155 @@ const stats = (seller) => {
     recentOrders: sellerOrders,
     trends: { ordersGrowth: 12, revenueGrowth: 8, thisWeekOrders: 7, lastWeekOrders: 5, thisWeekRevenue: 13000, lastWeekRevenue: 8600 },
     recentActivity: { transactions: [], recentOrders: sellerOrders.slice(0, 5).map((o) => ({ id: o.id, orderNumber: o.order_number, status: o.status, amount: o.order_amount, createdAt: o.created_at })) },
+  }
+}
+
+const adminDashboardStats = (requestUrl) => {
+  const fromDate = requestUrl.searchParams.get('fromDate')
+  const toDate = requestUrl.searchParams.get('toDate')
+  const userId = requestUrl.searchParams.get('userId')
+  const statusFilter = requestUrl.searchParams.get('status')
+  const courierFilter = requestUrl.searchParams.get('courier')
+  const start = fromDate ? new Date(`${fromDate}T00:00:00`).getTime() : null
+  const end = toDate ? new Date(`${toDate}T23:59:59.999`).getTime() : null
+  const amount = (order) => Number(order.order_amount ?? order.total_amount ?? 0) || 0
+  const freight = (order) => Number(order.freight_charges ?? order.shipping_charges ?? 0) || 0
+  const statusOf = (order) => String(order.order_status || order.status || 'pending').toLowerCase()
+  const courierOf = (order) => String(order.courier_partner || order.courier_name || 'Unassigned')
+  const createdAt = (order) => new Date(order.created_at || order.createdAt || 0).getTime()
+  const dateKey = (order) => new Date(order.created_at || order.createdAt || Date.now()).toISOString().slice(0, 10)
+  const cityOf = (order, type) => order[`${type}_details`]?.city || order[`customer_${type === 'shipping' ? 'city' : 'pickup_city'}`] || 'Unknown'
+  const pincodeOf = (order) => String(order.shipping_details?.pincode || order.customer_pincode || '')
+  const includesStatus = (order, values) => values.some((value) => statusOf(order).includes(value))
+  const isDelivered = (order) => statusOf(order) === 'delivered'
+  const isRto = (order) => includesStatus(order, ['rto', 'return'])
+  const isNdr = (order) => includesStatus(order, ['ndr', 'undelivered'])
+  const isTransit = (order) => includesStatus(order, ['transit', 'shipped', 'ofd', 'out_for_delivery'])
+  const isPending = (order) => includesStatus(order, ['pending', 'booked', 'pickup'])
+  const isCod = (order) => String(order.payment_type || order.order_type || '').toLowerCase() === 'cod'
+
+  const selectedOrders = state.orders.filter((order) => {
+    const created = createdAt(order)
+    return (!start || created >= start) && (!end || created <= end) &&
+      (!userId || String(order.user_id || order.userId) === userId) &&
+      (!statusFilter || statusOf(order) === statusFilter) &&
+      (!courierFilter || courierOf(order) === courierFilter)
+  })
+  const totalOrders = selectedOrders.length
+  const deliveredOrders = selectedOrders.filter(isDelivered).length
+  const rtoOrders = selectedOrders.filter(isRto).length
+  const ndrOrders = selectedOrders.filter(isNdr).length
+  const codOrders = selectedOrders.filter(isCod)
+  const totalRevenue = selectedOrders.reduce((sum, order) => sum + amount(order), 0)
+  const totalFreightCharges = selectedOrders.reduce((sum, order) => sum + freight(order), 0)
+  const codAmount = codOrders.reduce((sum, order) => sum + amount(order), 0)
+  const percentage = (value) => totalOrders ? Number(((value / totalOrders) * 100).toFixed(1)) : 0
+  const countBy = (items, key) => items.reduce((result, item) => {
+    const value = key(item)
+    result[value] = (result[value] || 0) + 1
+    return result
+  }, {})
+  const topLocations = (type) => Object.entries(countBy(selectedOrders, (order) => cityOf(order, type)))
+    .map(([city, count]) => ({ city, count })).sort((a, b) => b.count - a.count).slice(0, 10)
+
+  const daily = new Map()
+  for (const order of selectedOrders) {
+    const date = dateKey(order)
+    const row = daily.get(date) || { date, orders: 0, revenue: 0, collected: 0, remitted: 0, created: 0, pickupGenerated: 0, pickedUp: 0, shipped: 0, ofd: 0, delivered: 0, rto: 0, ndr: 0 }
+    const status = statusOf(order)
+    row.orders += 1
+    row.created += 1
+    row.revenue += amount(order)
+    if (isCod(order)) row.collected += amount(order)
+    if (status.includes('pickup')) row.pickupGenerated += 1
+    if (status.includes('picked')) row.pickedUp += 1
+    if (status.includes('shipped') || status.includes('transit')) row.shipped += 1
+    if (status.includes('ofd') || status.includes('out_for_delivery')) row.ofd += 1
+    if (isDelivered(order)) row.delivered += 1
+    if (isRto(order)) row.rto += 1
+    if (isNdr(order)) row.ndr += 1
+    daily.set(date, row)
+  }
+  const timeline = [...daily.values()].sort((a, b) => a.date.localeCompare(b.date))
+
+  const courierPerformance = {}
+  for (const order of selectedOrders) {
+    const name = courierOf(order)
+    const current = courierPerformance[name] || { count: 0, delivered: 0, revenue: 0 }
+    current.count += 1
+    current.delivered += isDelivered(order) ? 1 : 0
+    current.revenue += amount(order)
+    courierPerformance[name] = current
+  }
+  for (const value of Object.values(courierPerformance)) value.deliveryRate = value.count ? Number(((value.delivered / value.count) * 100).toFixed(1)) : 0
+
+  const codBySeller = new Map()
+  for (const order of codOrders.filter((item) => !isDelivered(item) || !item.cod_remitted)) {
+    const sellerId = order.user_id || order.userId
+    const seller = state.users.find((item) => item.id === sellerId)
+    const current = codBySeller.get(sellerId) || { customerId: sellerId, customerName: seller?.companyInfo?.businessName || seller?.displayName, customerEmail: seller?.email, codOrderCount: 0, netPayableBalance: 0 }
+    current.codOrderCount += 1
+    current.netPayableBalance += amount(order)
+    codBySeller.set(sellerId, current)
+  }
+  const topCodPayables = [...codBySeller.values()].sort((a, b) => b.netPayableBalance - a.netPayableBalance).slice(0, 10)
+  const pendingCod = topCodPayables.reduce((sum, item) => sum + item.netPayableBalance, 0)
+  const now = Date.now()
+  const today = new Date().toISOString().slice(0, 10)
+  const pendingKyc = state.users.filter((user) => user.domesticKyc?.status !== 'verified').length
+  const statuses = countBy(selectedOrders, statusOf)
+  const riskyPincodes = Object.entries(countBy(selectedOrders.filter((order) => isRto(order) || isNdr(order)), pincodeOf))
+    .filter(([pincode]) => pincode).map(([pincode, count]) => ({ pincode, count })).sort((a, b) => b.count - a.count).slice(0, 20)
+
+  return {
+    isAllTime: !fromDate && !toDate,
+    todayOperations: {
+      orders: selectedOrders.filter((order) => dateKey(order) === today).length,
+      pending: selectedOrders.filter(isPending).length,
+      inTransit: selectedOrders.filter(isTransit).length,
+      delivered: deliveredOrders,
+    },
+    financial: {
+      todayRevenue: selectedOrders.filter((order) => dateKey(order) === today).reduce((sum, order) => sum + amount(order), 0),
+      totalRevenue, totalShippingCharges: totalFreightCharges, totalFreightCharges, totalCourierCosts: totalFreightCharges,
+      codAmount, codRemittanceDue: pendingCod,
+      codStats: { pendingRemittance: pendingCod, pendingOrders: topCodPayables.reduce((sum, item) => sum + item.codOrderCount, 0) },
+      codPayableSummary: { codPayableAmount: pendingCod, negativeWalletAdjustment: 0, netPayableBalance: pendingCod, customerCount: topCodPayables.length },
+      topCodPayables,
+    },
+    operational: {
+      totalOrders, deliveredOrders, rtoOrders, rtoCount: rtoOrders, ndrOrders, ndrCount: ndrOrders,
+      deliverySuccessRate: percentage(deliveredOrders), rtoRate: percentage(rtoOrders), ndrRate: percentage(ndrOrders), avgDeliveryTime: 0,
+    },
+    alerts: {
+      openTickets: 0, inProgressTickets: 0, overdueTickets: 0,
+      merchantAccounts: { accountPendingApproval: state.users.filter((user) => !user.approved).length, documentsNotUploaded: pendingKyc, partialDocumentsUploaded: 0 },
+      shipmentPickups: { pendingForPickup: selectedOrders.filter(isPending).length, notScheduled: selectedOrders.filter((order) => statusOf(order) === 'pending').length },
+    },
+    couriers: { performance: courierPerformance },
+    geographic: { topOriginCities: topLocations('pickup'), topDestinationCities: topLocations('shipping'), highRiskPincodes: riskyPincodes },
+    users: {
+      total: state.users.length, active: state.users.filter((user) => user.approved).length,
+      today: state.users.filter((user) => String(user.createdAt || '').startsWith(today)).length,
+      lastWeek: state.users.filter((user) => now - new Date(user.createdAt || 0).getTime() <= 7 * 86400000).length,
+      pendingKyc,
+    },
+    metrics: {
+      avgOrderValue: totalOrders ? totalRevenue / totalOrders : 0,
+      totalPrepaidOrders: selectedOrders.filter((order) => !isCod(order)).length,
+      totalCodOrders: codOrders.length,
+    },
+    filters: {
+      couriers: [...new Set(state.orders.map(courierOf))].filter(Boolean).sort(),
+      users: state.users.map((user) => ({ id: user.id, name: user.companyInfo?.businessName || user.displayName || user.email })),
+    },
+    charts: { ordersByDate: timeline, statusActivityByDate: timeline, codMovementByDate: timeline, revenueByDate: timeline },
+    orderStatusCounts: statuses,
+    recentOrders: selectedOrders.slice().sort((a, b) => createdAt(b) - createdAt(a)).slice(0, 10),
+    recentActivity: selectedOrders.slice().sort((a, b) => createdAt(b) - createdAt(a)).slice(0, 10).map((order) => ({
+      id: order.id, type: 'order', title: order.order_number || order.order_id || 'Shipment', detail: statusOf(order).replace(/_/g, ' '),
+      occurredAt: order.updated_at || order.created_at || new Date().toISOString(), route: '/admin/orders',
+    })),
   }
 }
 
@@ -522,6 +675,7 @@ http.createServer(async (req, res) => {
       return send({ success: true, data: state.aboutUs })
     }
     if (path === '/api/admin/crm/session') return send({ success: true, data: { actorType: 'admin', scopeType: 'all', permissions: {} }, actorType: 'admin', scopeType: 'all', permissions: {} })
+    if (path === '/api/admin/dashboard/stats' && req.method === 'GET') return send({ success: true, data: adminDashboardStats(requestUrl) })
     if (path === '/api/wallet/balance') return send({ success: true, data: { balance: 5000 }, balance: 5000 })
     if (path === '/api/dashboard/stats') return send({ success: true, data: stats(currentSeller(req)) })
     if (path === '/api/dashboard/preferences') {
