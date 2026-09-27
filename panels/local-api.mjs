@@ -19,6 +19,7 @@ const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@punjabshiplogistics.com'
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Demo@123'
 const CLIENT_EMAIL = 'client@punjabshiplogistics.com'
 const CLIENT_PASSWORD = 'Demo@123'
+const PRIMARY_SELLER_EMAIL = process.env.PRIMARY_SELLER_EMAIL || 'sahilmittal1920@gmail.com'
 const SERVICEABILITY_SEED_SIZE = 27000
 const SHIPGLOBAL_SERVICE = process.env.SHIPGLOBAL_SERVICE || 'Shipglobal Direct'
 const SHIPGLOBAL_CURRENCY = process.env.SHIPGLOBAL_CURRENCY || 'INR'
@@ -115,6 +116,20 @@ const demoUser = createSeller(CLIENT_EMAIL, {
   domesticKyc: { status: 'verified', updatedAt: new Date().toISOString() },
 })
 
+const primarySeller = createSeller(PRIMARY_SELLER_EMAIL, {
+  id: 'primary-seller', userId: 'primary-seller', displayName: 'Sahil Mittal', onboardingComplete: true,
+  profileComplete: true, approved: true, onboardingStep: 3, businessType: ['b2c', 'b2b', 'd2c'],
+  monthlyOrderCount: '100-500', currentPlanName: 'Starter B2C', currentPlanId: 'starter-b2c',
+  currentB2CPlanName: 'Starter B2C', currentB2CPlanId: 'starter-b2c',
+  companyInfo: {
+    businessName: 'Sahil Mittal', brandName: 'Sahil Mittal', contactPerson: 'Sahil Mittal', companyAddress: '',
+    city: 'Ludhiana', state: 'Punjab', pincode: '141001', contactEmail: PRIMARY_SELLER_EMAIL,
+    companyEmail: PRIMARY_SELLER_EMAIL, companyContactNumber: '', contactNumber: '', website: '',
+    POCEmailVerified: true, POCPhoneVerified: false,
+  },
+  domesticKyc: { status: 'verified', updatedAt: new Date().toISOString() },
+})
+
 const orders = Array.from({ length: 12 }, (_, i) => ({
   id: `demo-${i + 1}`, user_id: demoUser.id, order_number: `DEMO-${1001 + i}`, order_id: `DEMO-${1001 + i}`,
   awb_number: `DEMOAWB${1001 + i}`, order_status: ['delivered', 'in_transit', 'pending', 'booked'][i % 4],
@@ -130,7 +145,7 @@ const orders = Array.from({ length: 12 }, (_, i) => ({
 }))
 
 const defaultState = {
-  users: [demoUser], orders, pendingOtps: {}, pickupAddresses: {},
+  users: [demoUser, primarySeller], orders, pendingOtps: {}, pickupAddresses: {},
   customServiceabilityLocations: [], serviceabilityOverrides: {}, deletedServiceabilityLocationIds: [],
   plans: [
     { id: 'starter-b2c', name: 'Starter B2C', business_type: 'b2c', is_active: true },
@@ -146,6 +161,24 @@ const defaultState = {
 }
 const state = existsSync(dataFile) ? JSON.parse(readFileSync(dataFile, 'utf8')) : defaultState
 if (!Array.isArray(state.users)) state.users = state.user ? [state.user] : [demoUser]
+const existingPrimarySeller = state.users.find((item) => item.email === PRIMARY_SELLER_EMAIL)
+if (existingPrimarySeller) {
+  Object.assign(existingPrimarySeller, {
+    onboardingComplete: true,
+    profileComplete: true,
+    approved: true,
+    onboardingStep: 3,
+    businessType: existingPrimarySeller.businessType?.length ? existingPrimarySeller.businessType : primarySeller.businessType,
+    currentPlanName: existingPrimarySeller.currentPlanName || primarySeller.currentPlanName,
+    currentPlanId: existingPrimarySeller.currentPlanId || primarySeller.currentPlanId,
+    currentB2CPlanName: existingPrimarySeller.currentB2CPlanName || primarySeller.currentB2CPlanName,
+    currentB2CPlanId: existingPrimarySeller.currentB2CPlanId || primarySeller.currentB2CPlanId,
+    companyInfo: { ...primarySeller.companyInfo, ...existingPrimarySeller.companyInfo, POCEmailVerified: true },
+    domesticKyc: { ...existingPrimarySeller.domesticKyc, status: 'verified' },
+  })
+} else {
+  state.users.push(primarySeller)
+}
 state.orders ??= orders
 state.pendingOtps ??= {}
 state.pickupAddresses ??= {}

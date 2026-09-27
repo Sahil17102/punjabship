@@ -7,16 +7,17 @@ export interface RequestOtpResponse {
   demoOtpExpiresAt?: string;
 }
 
+// Render can take longer than the shared 10-second API timeout to wake after
+// inactivity. Authentication requests must stay alive through that cold start.
+const AUTH_REQUEST_CONFIG = { timeout: 75_000 } as const;
+
 export const requestOtpApi = async (email: string) => {
-  const { data } = await axiosInstance.post<RequestOtpResponse>("/auth/request-otp", { email });
+  const { data } = await axiosInstance.post<RequestOtpResponse>("/auth/request-otp", { email }, AUTH_REQUEST_CONFIG);
   return data;
 };
 
 export const verifyOtpApi = async (email: string, otp: string) => {
-  const { data } = await axiosInstance.post("/auth/verify-otp", {
-    email,
-    otp,
-  });
+  const { data } = await axiosInstance.post("/auth/verify-otp", { email, otp }, AUTH_REQUEST_CONFIG);
   return data;
 };
 
@@ -24,10 +25,7 @@ export const requestPasswordLoginApi = async (
   email: string,
   password?: string
 ) => {
-  const { data } = await axiosInstance.post("/auth/request-password-login", {
-    email,
-    password,
-  });
+  const { data } = await axiosInstance.post("/auth/request-password-login", { email, password }, AUTH_REQUEST_CONFIG);
   return data;
 };
 
