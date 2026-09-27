@@ -182,6 +182,28 @@ if (existingPrimarySeller) {
 state.orders ??= orders
 state.pendingOtps ??= {}
 state.pickupAddresses ??= {}
+const primarySellerState = state.users.find((item) => item.email === PRIMARY_SELLER_EMAIL)
+if (primarySellerState && !state.pickupAddresses[primarySellerState.id]?.length) {
+  state.pickupAddresses[primarySellerState.id] = [{
+    id: 'primary-pickup',
+    pickupId: 'primary-pickup',
+    userId: primarySellerState.id,
+    pickup: {
+      id: 'primary-pickup',
+      addressNickname: 'Primary Warehouse',
+      contactName: 'Sahil Mittal',
+      contactNumber: '8487881121',
+      addressLine1: 'Ludhiana',
+      addressLine2: '',
+      city: 'Ludhiana',
+      state: 'Punjab',
+      pincode: '141001',
+      country: 'India',
+    },
+    createdAt: primarySellerState.createdAt,
+    updatedAt: primarySellerState.updatedAt,
+  }]
+}
 state.customServiceabilityLocations ??= []
 state.serviceabilityOverrides ??= {}
 state.deletedServiceabilityLocationIds ??= []
