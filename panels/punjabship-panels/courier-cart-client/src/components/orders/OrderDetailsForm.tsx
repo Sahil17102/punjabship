@@ -26,6 +26,11 @@ const b2bRovTypes = [
   { key: 'owner', label: 'ROV by Owner' },
   { key: 'courier', label: 'ROV by Courier' },
 ]
+const currencyOptions = ['INR', 'USD', 'AED', 'AUD', 'CAD', 'EUR', 'GBP', 'SAR'].map((value) => ({ key: value, label: value }))
+const csb5Options = [
+  { key: '0', label: 'Normal shipment' },
+  { key: '1', label: 'CSB-5 export' },
+]
 
 const OrderDetailsForm = ({ shipmentType = 'b2c' }: { shipmentType?: 'b2b' | 'b2c' }) => {
   const {
@@ -65,7 +70,11 @@ const OrderDetailsForm = ({ shipmentType = 'b2c' }: { shipmentType?: 'b2b' | 'b2
   useEffect(() => {
     setValue('orderId', generateOrderId())
     setValue('orderDate', getTodayDate())
-  }, [setValue])
+    if (shipmentType === 'b2c') {
+      setFormValue('currencyCode', 'INR')
+      setFormValue('csb5Status', 0)
+    }
+  }, [setFormValue, setValue, shipmentType])
 
   useEffect(() => {
     if (shipmentType !== 'b2b') return
@@ -182,6 +191,48 @@ const OrderDetailsForm = ({ shipmentType = 'b2c' }: { shipmentType?: 'b2b' | 'b2
           )}
         />
       </Grid>
+
+      {shipmentType === 'b2c' && (
+        <Grid size={{ xs: 12, md: fieldWidth }}>
+          <Controller
+            name={'currencyCode' as never}
+            control={control}
+            render={({ field }) => (
+              <CustomSelect
+                required
+                label="Invoice Currency"
+                value={field.value || 'INR'}
+                onSelect={(value) => field.onChange(value)}
+                items={currencyOptions}
+                helperText="Required for ShipGlobal international booking."
+                topMargin={false}
+                dense
+              />
+            )}
+          />
+        </Grid>
+      )}
+
+      {shipmentType === 'b2c' && (
+        <Grid size={{ xs: 12, md: fieldWidth }}>
+          <Controller
+            name={'csb5Status' as never}
+            control={control}
+            render={({ field }) => (
+              <CustomSelect
+                required
+                label="Export Type"
+                value={String(field.value ?? 0)}
+                onSelect={(value) => field.onChange(Number(value))}
+                items={csb5Options}
+                helperText="Choose CSB-5 only for eligible export shipments."
+                topMargin={false}
+                dense
+              />
+            )}
+          />
+        </Grid>
+      )}
 
       {/* Order Date */}
       <Grid size={{ xs: 12, md: fieldWidth }}>

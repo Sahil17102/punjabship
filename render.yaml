@@ -14,6 +14,16 @@ services:
         value: admin@punjabshiplogistics.com
       - key: ADMIN_PASSWORD
         value: Demo@123
+      - key: SHIPGLOBAL_API_BASE_URL
+        value: https://app.shipglobal.in/apiv1
+      - key: SHIPGLOBAL_USERNAME
+        sync: false
+      - key: SHIPGLOBAL_PASSWORD
+        sync: false
+      - key: SHIPGLOBAL_SERVICE
+        value: Shipglobal Direct
+      - key: SHIPGLOBAL_CURRENCY
+        value: INR
 
   - type: web
     name: punjabship

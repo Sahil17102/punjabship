@@ -11,6 +11,13 @@ export interface CreateShipmentParams {
   package_height?: number
   transaction_fee?: number
   integration_type?: string
+  service?: string
+  currency_code?: 'AED' | 'AUD' | 'CAD' | 'EUR' | 'GBP' | 'INR' | 'SAR' | 'USD'
+  csb5_status?: 0 | 1
+  invoice_no?: string
+  invoice_date?: string
+  ioss_number?: string
+  customer_nickname?: string
   isReverse?: boolean
   request_auto_pickup?: 'Yes' | 'No'
   gift_wrap?: number
@@ -37,6 +44,7 @@ export interface CreateShipmentParams {
     pincode: string
     phone: string
     gstin?: string
+    country_code?: string
   }
   pickup: {
     warehouse_name: string

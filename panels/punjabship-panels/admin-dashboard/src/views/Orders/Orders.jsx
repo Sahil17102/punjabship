@@ -12,10 +12,11 @@ import ShipmentStageFilter from 'components/Orders/ShipmentStageFilter'
 import OrdersTable from 'components/Tables/OrdersTable'
 import TableFilters from 'components/Tables/TableFilters'
 import { useOrders } from 'hooks/useOrders'
+import { useQuery } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
 import { FiDownload, FiRefreshCw } from 'react-icons/fi'
 import { useLocation } from 'react-router-dom'
-import { exportOrdersToCSV } from 'services/order.service'
+import { exportOrdersToCSV, fetchShipGlobalStatus } from 'services/order.service'
 
 const getRouteFiltersFromSearch = (search) => {
   const params = new URLSearchParams(search)
@@ -47,6 +48,11 @@ const Orders = () => {
   const [exportReport, setExportReport] = useState('orders')
 
   const { data: ordersData, isLoading, isFetching, refetch } = useOrders(page, limit, filters)
+  const { data: shipGlobalStatus } = useQuery({
+    queryKey: ['shipglobal-status'],
+    queryFn: fetchShipGlobalStatus,
+    staleTime: 60000,
+  })
   const toast = useToast()
 
   useEffect(() => {
@@ -166,6 +172,7 @@ const Orders = () => {
             { label: 'Total orders', value: stats.total.toLocaleString() },
             { label: 'Pending', value: stats.pending.toLocaleString() },
             { label: 'Delivered', value: stats.delivered.toLocaleString() },
+            { label: 'ShipGlobal', value: shipGlobalStatus?.configured ? 'Connected' : 'Setup needed' },
           ]}
           actions={
             <HStack spacing={3} flexWrap="wrap">

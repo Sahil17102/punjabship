@@ -31,6 +31,11 @@ export async function fetchAllOrders(page, limit = 10, filters = {}) {
   }
 }
 
+export async function fetchShipGlobalStatus() {
+  const response = await api.get('/admin/integrations/shipglobal/status')
+  return response.data?.data || {}
+}
+
 export async function fetchBulkTracking(awbs = []) {
   try {
     const cleaned = awbs.map((awb) => String(awb || '').trim()).filter(Boolean)

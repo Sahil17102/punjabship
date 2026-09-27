@@ -107,7 +107,7 @@ const OrdersTable = ({
   )
 
   const supportedCancellationProviders = useMemo(
-    () => new Set(['delhivery', 'ekart', 'xpressbees', 'shadowfax', 'amazon', 'velocity']),
+    () => new Set(['delhivery', 'ekart', 'xpressbees', 'shadowfax', 'amazon', 'velocity', 'shipglobal']),
     [],
   )
 
@@ -353,8 +353,10 @@ const OrdersTable = ({
             ? 'shadowfax'
             : providerText.includes('amazon')
               ? 'amazon'
-              : providerText.includes('velocity')
-                ? 'velocity'
+            : providerText.includes('velocity')
+              ? 'velocity'
+              : providerText.includes('shipglobal')
+              ? 'shipglobal'
               : providerText.trim()
     if (provider !== 'manual' && !supportedCancellationProviders.has(provider)) return false
     return Boolean(order.id)
@@ -545,6 +547,14 @@ const OrdersTable = ({
           <Stack spacing={1} align="flex-start">
             <Text fontSize="sm">{courier}</Text>
             <Badge colorScheme="orange" fontSize="xs">Manual workflow</Badge>
+          </Stack>
+        )
+      }
+      if (source === 'shipglobal' || courier.toLowerCase().includes('shipglobal')) {
+        return (
+          <Stack spacing={1} align="flex-start">
+            <Text fontSize="sm">{courier}</Text>
+            <Badge colorScheme="blue" fontSize="xs">Live API</Badge>
           </Stack>
         )
       }

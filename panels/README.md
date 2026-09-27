@@ -11,7 +11,7 @@ Double-click `start-panels.cmd` to start the local apps. Node.js is required. Th
 
 Client: select **Email + password**, enter the credentials, and check the form checkbox. Email OTP is also available locally with code `123456`; no email is sent.
 
-This is a local UI clone with sample dashboard/orders data, not a production backend. Profile, dashboard preferences, invoice issuer details and About Us content can be saved to `local-data.json`. Live shipping, payment, courier integrations, real authentication, and other server mutations require a real backend; unsupported mutations return a clear preview-mode error. Realtime connections are disabled. No original live API is used by the local API clients.
+This is a local UI clone with sample dashboard/orders data, not a durable production backend. Profile, dashboard preferences, invoice issuer details and About Us content can be saved to `local-data.json`. ShipGlobal Vendor API booking, tracking and cancel/refund routes are available when `SHIPGLOBAL_USERNAME` and `SHIPGLOBAL_PASSWORD` are configured on the backend; credentials are never exposed to either frontend. Other unsupported live shipping, payment and courier mutations return a clear preview-mode error. Realtime connections are disabled, and a production database plus ShipGlobal webhook/polling policy are still required before processing customer shipments at scale.
 
 Brand details match the PunjabShip landing page: info@punjabshiplogistics.com, +91 84878 81121, SODHI ONLINE SERVICES, Near Verka Plant, Barnala Raikot Road, Mahal Kalan, Barnala, Punjab 148104. Login email addresses above are local demo identifiers; no live mailbox is created.
 

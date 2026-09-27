@@ -2,6 +2,13 @@ import http from 'node:http'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { createRequire } from 'node:module'
+import {
+  createShipGlobalClient,
+  extractShipGlobalAwb,
+  mapPunjabShipOrderToShipGlobal,
+  mapShipGlobalTracking,
+  validateShipGlobalOrder,
+} from './shipglobal.mjs'
 
 const require = createRequire(import.meta.url)
 const { loadData: loadIndiaPostData } = require('india-pincode')
@@ -13,6 +20,9 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Demo@123'
 const CLIENT_EMAIL = 'client@punjabshiplogistics.com'
 const CLIENT_PASSWORD = 'Demo@123'
 const SERVICEABILITY_SEED_SIZE = 27000
+const SHIPGLOBAL_SERVICE = process.env.SHIPGLOBAL_SERVICE || 'Shipglobal Direct'
+const SHIPGLOBAL_CURRENCY = process.env.SHIPGLOBAL_CURRENCY || 'INR'
+const shipGlobal = createShipGlobalClient()
 
 const toServiceabilityLocation = (office, index) => ({
   id: `india-post-${index + 1}`,
@@ -243,6 +253,57 @@ const merchantReadiness = (seller) => {
   return { ...result, isReady: Object.entries(result).every(([key, value]) => key.startsWith('assignedPlan') || key === 'isEmployee' || Boolean(value)) }
 }
 
+const isShipGlobalOrder = (order) => `${order?.integration_type || ''} ${order?.courier_partner || ''}`.toLowerCase().includes('shipglobal')
+
+const orderForPanels = (order) => {
+  const seller = state.users.find((item) => item.id === order.user_id)
+  return {
+    ...order,
+    type: order.type || 'b2c',
+    merchantName: seller?.companyInfo?.businessName || seller?.displayName || seller?.email || 'Unknown Merchant',
+    merchantEmail: seller?.email || '',
+    buyer_name: order.buyer_name || order.consignee?.name || order.customer_name || '',
+    buyer_phone: order.buyer_phone || order.consignee?.phone || order.customer_phone || '',
+    order_type: order.order_type || order.payment_type || 'prepaid',
+    order_status: order.order_status || order.status || 'pending',
+    order_date: order.order_date || order.created_at,
+  }
+}
+
+const filterAndPaginateOrders = (ordersToFilter, requestUrl) => {
+  const page = Math.max(1, Number(requestUrl.searchParams.get('page') || 1))
+  const limit = Math.min(1000, Math.max(1, Number(requestUrl.searchParams.get('limit') || 10)))
+  const search = String(requestUrl.searchParams.get('search') || '').trim().toLowerCase()
+  const status = String(requestUrl.searchParams.get('status') || '').trim().toLowerCase()
+  const sortOrder = String(requestUrl.searchParams.get('sortOrder') || 'desc').toLowerCase() === 'asc' ? 'asc' : 'desc'
+  let filtered = ordersToFilter.map(orderForPanels)
+  if (search) filtered = filtered.filter((order) => JSON.stringify(order).toLowerCase().includes(search))
+  if (status) filtered = filtered.filter((order) => String(order.order_status || '').toLowerCase() === status)
+  filtered.sort((a, b) => sortOrder === 'asc'
+    ? String(a.created_at || '').localeCompare(String(b.created_at || ''))
+    : String(b.created_at || '').localeCompare(String(a.created_at || '')))
+  const statusCounts = filtered.reduce((counts, order) => {
+    const key = order.order_status || 'pending'
+    counts[key] = (counts[key] || 0) + 1
+    return counts
+  }, {})
+  const start = (page - 1) * limit
+  return { orders: filtered.slice(start, start + limit), totalCount: filtered.length, totalPages: Math.max(1, Math.ceil(filtered.length / limit)), page, limit, statusCounts }
+}
+
+const localTracking = (order) => ({
+  id: order.id,
+  order_id: order.order_id || order.id,
+  order_number: order.order_number,
+  awb_number: order.awb_number,
+  courier_name: order.courier_partner || 'PunjabShip',
+  status: order.order_status || order.status || 'shipment_created',
+  edd: order.edd || '',
+  history: order.tracking_events || [{ status_code: 'LOCAL', location: '', event_time: order.updated_at || order.created_at, message: order.provider_last_status || 'Shipment created' }],
+  payment_type: order.payment_type || order.order_type || 'prepaid',
+  shipment_info: order.provider_last_status || order.delivery_message || '',
+})
+
 http.createServer(async (req, res) => {
   const origin = String(req.headers.origin || '')
   const corsOrigin = allowedOrigin(origin)
@@ -263,7 +324,7 @@ http.createServer(async (req, res) => {
     const body = raw ? JSON.parse(raw) : {}
     console.log(req.method, path)
 
-    if (path === '' || path === '/api/health') return send({ success: true, mode: 'punjabship-demo-api' })
+    if (path === '' || path === '/api/health') return send({ success: true, mode: 'punjabship-demo-api', integrations: { shipglobal: { configured: shipGlobal.isConfigured(), service: SHIPGLOBAL_SERVICE } } })
     if (path === '/api/auth/request-otp' && req.method === 'POST') {
       const email = String(body.email || '').trim().toLowerCase()
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return send({ error: 'Enter a valid email address.' }, 400)
@@ -411,6 +472,19 @@ http.createServer(async (req, res) => {
       save()
       return send({ success: true, message: `${businessType.toUpperCase()} plan assigned.`, user: seller })
     }
+    if (path === '/api/admin/integrations/shipglobal/status' && req.method === 'GET') {
+      return send({
+        success: true,
+        data: {
+          provider: 'ShipGlobal',
+          configured: shipGlobal.isConfigured(),
+          liveBookingEnabled: shipGlobal.isConfigured(),
+          service: SHIPGLOBAL_SERVICE,
+          apiBaseUrl: shipGlobal.baseUrl,
+          credentialsSource: 'server_environment',
+        },
+      })
+    }
     const adminKycMatch = path.match(/^\/api\/admin\/users\/([^/]+)\/kyc$/)
     if (adminKycMatch && req.method === 'GET') {
       const seller = state.users.find((item) => item.id === adminKycMatch[1])
@@ -456,6 +530,138 @@ http.createServer(async (req, res) => {
     }
     if (path === '/api/dashboard/tour') return send({ success: true, data: { version: 1, status: 'dismissed', completedPages: [] } })
     if (path === '/api/dashboard/invoice-status') return send({ success: true, status: { pending: { count: 0, totalAmount: 0 }, paid: { count: 0, totalAmount: 0 }, overdue: { count: 0, totalAmount: 0 } } })
+    if (path === '/api/couriers/available-to-user' && req.method === 'POST') {
+      const configured = shipGlobal.isConfigured()
+      const courier = {
+        id: 99001,
+        courier_id: 99001,
+        name: 'ShipGlobal',
+        displayName: 'ShipGlobal International',
+        integration_type: 'shipglobal',
+        courier_option_key: 'shipglobal-direct',
+        service: SHIPGLOBAL_SERVICE,
+        mode: 'air',
+        rate: 0,
+        courier_cost_estimate: null,
+        booking_available: configured,
+        can_book: configured,
+        booking_blocked_reason: configured ? null : 'ShipGlobal production credentials must be configured by the administrator.',
+        provider_serviceability: {
+          provider: 'ShipGlobal',
+          service: SHIPGLOBAL_SERVICE,
+          booking_available: configured,
+          can_book: configured,
+          booking_blocked_reason: configured ? null : 'ShipGlobal production credentials must be configured by the administrator.',
+        },
+      }
+      return send({ success: true, data: [courier] })
+    }
+    if (path === '/api/orders/check-order-number' && req.method === 'GET') {
+      const orderNumber = String(requestUrl.searchParams.get('orderNumber') || '').trim().toLowerCase()
+      const available = Boolean(orderNumber) && !state.orders.some((order) => String(order.order_number || '').toLowerCase() === orderNumber)
+      return send({ success: true, available, data: { available, message: available ? 'Order ID is available.' : 'This Order ID is already used.' } })
+    }
+    if (path === '/api/orders/b2c/create' && req.method === 'POST') {
+      const seller = currentSeller(req)
+      if (!seller) return send({ success: false, message: 'Authentication required.' }, 401)
+      const readiness = merchantReadiness(seller)
+      if (!readiness.isReady) return send({ success: false, message: 'Complete account approval, KYC, plan and pickup setup before booking a shipment.', readiness }, 403)
+      if (!isShipGlobalOrder(body)) return send({ success: false, message: 'Select ShipGlobal as the courier partner for live booking.' }, 400)
+      if (!shipGlobal.isConfigured()) return send({ success: false, message: 'ShipGlobal production credentials are not configured yet.' }, 503)
+      if (state.orders.some((order) => String(order.order_number) === String(body.order_number))) return send({ success: false, message: 'Order number already exists.' }, 409)
+
+      const providerPayload = mapPunjabShipOrderToShipGlobal(body, { service: SHIPGLOBAL_SERVICE, currencyCode: SHIPGLOBAL_CURRENCY })
+      const missing = validateShipGlobalOrder(providerPayload)
+      if (missing.length) return send({ success: false, message: `Missing ShipGlobal fields: ${missing.join(', ')}`, missingFields: missing }, 400)
+
+      const providerResult = await shipGlobal.addOrder(providerPayload)
+      const awb = extractShipGlobalAwb(providerResult.data, providerResult.headers)
+      const now = new Date().toISOString()
+      const order = {
+        ...body,
+        id: `shipglobal-${randomUUID()}`,
+        order_id: body.order_number,
+        user_id: seller.id,
+        type: 'b2c',
+        integration_type: 'shipglobal',
+        courier_partner: 'ShipGlobal',
+        awb_number: awb,
+        status: awb ? 'shipment_created' : 'booking_accepted',
+        order_status: awb ? 'shipment_created' : 'booking_accepted',
+        provider: 'shipglobal',
+        provider_service: providerPayload.service,
+        provider_last_status: awb ? 'Shipment created' : 'Order accepted; AWB pending from provider',
+        provider_response: providerResult.data,
+        shipglobal_booking_status: awb ? 'booked' : 'accepted_pending_awb',
+        buyer_name: body.consignee?.name || '',
+        buyer_phone: body.consignee?.phone || '',
+        customer_name: body.consignee?.name || '',
+        customer_phone: body.consignee?.phone || '',
+        created_at: now,
+        updated_at: now,
+      }
+      state.orders.unshift(order)
+      save()
+      return send({ success: true, message: awb ? 'ShipGlobal shipment created.' : 'ShipGlobal accepted the order; AWB is pending.', shipment: orderForPanels(order), providerResponse: providerResult.data }, 201)
+    }
+    if (['/api/orders/b2c/list', '/api/orders/b2b/list', '/api/orders/all'].includes(path) && req.method === 'GET') {
+      const seller = currentSeller(req)
+      if (!seller) return send({ success: false, message: 'Authentication required.' }, 401)
+      const type = path.includes('/b2b/') ? 'b2b' : path.includes('/b2c/') ? 'b2c' : null
+      const sellerOrders = state.orders.filter((order) => order.user_id === seller.id && (!type || (order.type || 'b2c') === type))
+      return send({ success: true, ...filterAndPaginateOrders(sellerOrders, requestUrl) })
+    }
+    if (path === '/api/admin/orders/all-orders' && req.method === 'GET') {
+      return send({ success: true, ...filterAndPaginateOrders(state.orders, requestUrl) })
+    }
+    if (path === '/api/orders/track' && req.method === 'GET') {
+      const requested = String(requestUrl.searchParams.get('awbs') || requestUrl.searchParams.get('awb') || requestUrl.searchParams.get('orderNumber') || '').split(',').map((value) => value.trim()).filter(Boolean)
+      if (!requested.length) return send({ success: false, message: 'AWB or order number is required.' }, 400)
+      const results = []
+      for (const reference of requested.slice(0, 50)) {
+        const order = state.orders.find((item) => [item.awb_number, item.order_number, item.order_id, item.id].map(String).includes(reference))
+        try {
+          let tracking
+          if ((order && isShipGlobalOrder(order)) || /^SG\d+$/i.test(reference)) {
+            if (!shipGlobal.isConfigured()) throw Object.assign(new Error('ShipGlobal production credentials are not configured yet.'), { statusCode: 503 })
+            const trackingReference = order?.awb_number || reference
+            const providerResult = await shipGlobal.track(trackingReference)
+            tracking = mapShipGlobalTracking(providerResult.data, order || { awb_number: trackingReference })
+            if (order) {
+              order.order_status = tracking.status
+              order.status = tracking.status
+              order.provider_last_status = tracking.shipment_info
+              order.tracking_events = tracking.history
+              order.updated_at = new Date().toISOString()
+              save()
+            }
+          } else if (order) tracking = localTracking(order)
+          else throw Object.assign(new Error('No shipment found.'), { statusCode: 404 })
+          results.push({ awb: reference, success: true, data: tracking })
+        } catch (error) {
+          results.push({ awb: reference, success: false, message: error.message })
+        }
+      }
+      if (requested.length === 1) {
+        const result = results[0]
+        return result.success ? send({ success: true, data: result.data }) : send({ success: false, message: result.message }, result.message.includes('credentials') ? 503 : 404)
+      }
+      return send({ success: true, results, summary: { total: results.length, found: results.filter((item) => item.success).length, failed: results.filter((item) => !item.success).length } })
+    }
+    if (path === '/api/shipments/cancel' && req.method === 'POST') {
+      const order = state.orders.find((item) => String(item.id) === String(body.orderId) || String(item.order_number) === String(body.orderId))
+      if (!order) return send({ success: false, message: 'Order not found.' }, 404)
+      if (!isShipGlobalOrder(order)) return send({ success: false, message: 'This live cancellation route currently supports ShipGlobal orders.' }, 400)
+      if (!order.awb_number) return send({ success: false, message: 'ShipGlobal AWB is required before cancellation.' }, 400)
+      const providerResult = await shipGlobal.cancelRefund(order.awb_number)
+      order.order_status = 'cancelled'
+      order.status = 'cancelled'
+      order.provider_last_status = providerResult.data?.msg || providerResult.data?.message || 'Cancelled and refund requested'
+      order.cancelled_at = new Date().toISOString()
+      order.updated_at = order.cancelled_at
+      save()
+      return send({ success: true, message: order.provider_last_status, order: orderForPanels(order), providerResponse: providerResult.data })
+    }
     if (path === '/api/serviceability/locations' && req.method === 'GET') {
       const page = Math.max(1, Number(requestUrl.searchParams.get('page') || 1))
       const limit = Math.min(2000, Math.max(1, Number(requestUrl.searchParams.get('limit') || 50)))
@@ -510,7 +716,7 @@ http.createServer(async (req, res) => {
     return send({ success: true, data: [], orders: [], pickups: [], destinations: [], distribution: [], transactions: [], tickets: [], couriers: [], warehouses: [], addresses: [], items: [], total: 0, totalCount: 0, totalPages: 1, page: 1, statusCounts: {}, balance: 5000 })
   } catch (error) {
     console.error(error)
-    send({ success: false, error: error.message }, 500)
+    send({ success: false, error: error.message, message: error.message }, Number(error.statusCode || 500))
   }
 }).listen(Number(process.env.PORT || 5004), process.env.HOST || '0.0.0.0', () => {
   console.log(`PunjabShip API listening on port ${process.env.PORT || 5004}`)

@@ -58,6 +58,8 @@ export type B2CFormData = {
   city: string
   state: string
   country: string
+  currencyCode?: 'AED' | 'AUD' | 'CAD' | 'EUR' | 'GBP' | 'INR' | 'SAR' | 'USD'
+  csb5Status?: 0 | 1
   products: Product[]
   weight: number
   length: number
@@ -100,6 +102,7 @@ export type B2CFormData = {
     | 'indiapost'
     | 'velocity'
     | 'icarry'
+    | 'shipglobal'
   pickupAddress?: string
   pickupLocationPOCName?: string
   courierPartnerId: string
@@ -154,6 +157,9 @@ export default function B2COrderFormSteps({ onClose }: { onClose?: () => void })
       pickupDate: defaultPickupSlot.pickupDate,
       pickupTime: defaultPickupSlot.pickupTime,
       orderType: getDefaultOrderType(),
+      country: 'IN',
+      currencyCode: 'INR',
+      csb5Status: 0,
       selectedMaxSlabWeight: null,
     },
   })
@@ -202,6 +208,9 @@ export default function B2COrderFormSteps({ onClose }: { onClose?: () => void })
       pickupDate: defaultPickupSlot.pickupDate,
       pickupTime: defaultPickupSlot.pickupTime,
       orderType: getDefaultOrderType(),
+      country: 'IN',
+      currencyCode: 'INR',
+      csb5Status: 0,
       selectedMaxSlabWeight: null,
       ...cloneState.cloneOrder,
       orderId: `ORD-${Date.now()}`,
@@ -393,6 +402,11 @@ export default function B2COrderFormSteps({ onClose }: { onClose?: () => void })
         is_rto_different: data?.isRtoSame ? 'no' : 'yes',
         discount: data.discount ?? 0,
         integration_type: data?.integrationType,
+        service: data?.integrationType === 'shipglobal' ? 'Shipglobal Direct' : undefined,
+        currency_code: data.currencyCode || 'INR',
+        csb5_status: Number(data.csb5Status || 0) === 1 ? 1 : 0,
+        invoice_no: normalizedOrderId,
+        invoice_date: data?.orderDate,
         transaction_fee: data?.transactionFee,
         gift_wrap: data?.giftWrap,
         consignee: {
@@ -405,6 +419,7 @@ export default function B2COrderFormSteps({ onClose }: { onClose?: () => void })
           pincode: data.pincode,
           email: data?.buyerEmail,
           phone: data.buyerPhone,
+          country_code: data.country || 'IN',
         },
         pickup_location_id: data.pickupLocationId,
         pickup: {
