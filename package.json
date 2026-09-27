@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build && node scripts/create-route-entries.mjs",
+    "start": "node panels/local-api.mjs",
     "preview": "vite preview",
     "test": "npm run build && go test ./..."
   },

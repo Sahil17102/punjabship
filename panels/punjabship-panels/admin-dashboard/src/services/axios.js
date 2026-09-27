@@ -1,6 +1,9 @@
 import axios from 'axios'
 
-const apiBaseURL = process.env.REACT_APP_API_BASE_URL || 'http://127.0.0.1:5004/api'
+const configuredApiBaseURL = process.env.REACT_APP_API_BASE_URL || ''
+const apiBaseURL = configuredApiBaseURL.includes('punjabship-logisticbackend.onrender.com')
+  ? 'https://punjabship2.onrender.com/api'
+  : configuredApiBaseURL || 'http://127.0.0.1:5004/api'
 
 const api = axios.create({
   baseURL: apiBaseURL,

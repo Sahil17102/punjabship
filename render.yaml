@@ -57,9 +57,9 @@ services:
         destination: /index.html
     envVars:
       - key: VITE_API_URL
-        value: https://punjabship-logisticbackend.onrender.com/api
+        value: https://punjabship2.onrender.com/api
       - key: VITE_APP_SOCKET_URL
-        value: https://punjabship-logisticbackend.onrender.com
+        value: https://punjabship2.onrender.com
       - key: VITE_ADMIN_URL
         value: https://punjabshipadmin.onrender.com
     headers:
@@ -82,9 +82,9 @@ services:
         destination: /index.html
     envVars:
       - key: REACT_APP_API_BASE_URL
-        value: https://punjabship-logisticbackend.onrender.com/api
+        value: https://punjabship2.onrender.com/api
       - key: REACT_APP_SOCKET_URL
-        value: https://punjabship-logisticbackend.onrender.com
+        value: https://punjabship2.onrender.com
     headers:
       - path: /*
         name: X-Content-Type-Options

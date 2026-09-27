@@ -4,7 +4,10 @@ import { clearAuthTokens, getAuthTokens, setAuthTokens } from './tokenVault'
 import { buildShopifyInstallPath, isEmbeddedShopifyContext } from '../utils/shopifyEmbedded'
 import { getShopifyIdToken } from '../utils/shopifyAppBridge'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:5004/api'
+const configuredApiUrl = import.meta.env.VITE_API_URL || ''
+const API_BASE_URL = configuredApiUrl.includes('punjabship-logisticbackend.onrender.com')
+  ? 'https://punjabship2.onrender.com/api'
+  : configuredApiUrl || 'http://127.0.0.1:5004/api'
 
 const api = axios.create({
   baseURL: API_BASE_URL,
