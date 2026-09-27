@@ -188,7 +188,7 @@ const ServiceabilityPage = () => {
       />
 
       <GenericTable
-        title="Serviceable Locations"
+        title={`Serviceable Locations (${Number(data?.total || 0).toLocaleString('en-IN')})`}
         data={data?.data || []}
         captions={captions}
         perPageOptions={[50, 100, 1000, 2000]}

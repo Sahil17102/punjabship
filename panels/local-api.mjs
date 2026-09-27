@@ -1,6 +1,10 @@
 import http from 'node:http'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
+import { createRequire } from 'node:module'
+
+const require = createRequire(import.meta.url)
+const { loadData: loadIndiaPostData } = require('india-pincode')
 
 const dataFile = new URL('./local-data.json', import.meta.url)
 const DEMO_OTP = process.env.DEMO_OTP || '123456'
@@ -8,6 +12,44 @@ const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@punjabshiplogistics.com'
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Demo@123'
 const CLIENT_EMAIL = 'client@punjabshiplogistics.com'
 const CLIENT_PASSWORD = 'Demo@123'
+const SERVICEABILITY_SEED_SIZE = 27000
+
+const toServiceabilityLocation = (office, index) => ({
+  id: `india-post-${index + 1}`,
+  pincode: office.pincode,
+  city: office.area,
+  district: office.district,
+  state: office.state,
+  country: 'India',
+  tags: office.delivery ? ['delivery'] : [],
+  officeType: office.officeType,
+  source: 'India Post',
+})
+
+const buildServiceabilitySeed = () => {
+  const deliveryOffices = loadIndiaPostData().filter((office) => office.delivery)
+  const uniquePincodes = new Map()
+  for (const office of deliveryOffices) {
+    if (!uniquePincodes.has(office.pincode)) uniquePincodes.set(office.pincode, office)
+  }
+
+  const selected = [...uniquePincodes.values()]
+  const selectedOffices = new Set(selected.map((office) => `${office.pincode}|${office.area}|${office.officeType}`))
+  for (const office of deliveryOffices) {
+    if (selected.length >= SERVICEABILITY_SEED_SIZE) break
+    const key = `${office.pincode}|${office.area}|${office.officeType}`
+    if (!selectedOffices.has(key)) {
+      selected.push(office)
+      selectedOffices.add(key)
+    }
+  }
+
+  return selected
+    .sort((a, b) => a.pincode.localeCompare(b.pincode) || a.area.localeCompare(b.area))
+    .map(toServiceabilityLocation)
+}
+
+const seededServiceabilityLocations = buildServiceabilitySeed()
 
 const createSeller = (email, overrides = {}) => {
   const now = new Date().toISOString()
@@ -75,6 +117,7 @@ const orders = Array.from({ length: 12 }, (_, i) => ({
 
 const defaultState = {
   users: [demoUser], orders, pendingOtps: {}, pickupAddresses: {},
+  customServiceabilityLocations: [], serviceabilityOverrides: {}, deletedServiceabilityLocationIds: [],
   plans: [
     { id: 'starter-b2c', name: 'Starter B2C', business_type: 'b2c', is_active: true },
     { id: 'growth-b2c', name: 'Growth B2C', business_type: 'b2c', is_active: true },
@@ -92,10 +135,20 @@ if (!Array.isArray(state.users)) state.users = state.user ? [state.user] : [demo
 state.orders ??= orders
 state.pendingOtps ??= {}
 state.pickupAddresses ??= {}
+state.customServiceabilityLocations ??= []
+state.serviceabilityOverrides ??= {}
+state.deletedServiceabilityLocationIds ??= []
 state.plans ??= defaultState.plans
 state.preferences ??= defaultState.preferences
 
 const save = () => writeFileSync(dataFile, JSON.stringify(state, null, 2))
+const serviceabilityLocations = () => {
+  const deleted = new Set(state.deletedServiceabilityLocationIds)
+  const seeded = seededServiceabilityLocations
+    .filter((location) => !deleted.has(location.id))
+    .map((location) => ({ ...location, ...(state.serviceabilityOverrides[location.id] || {}) }))
+  return [...seeded, ...state.customServiceabilityLocations.filter((location) => !deleted.has(location.id))]
+}
 const brandAddress = 'SODHI ONLINE SERVICES, Near Verka Plant, Barnala Raikot Road, Mahal Kalan, Barnala, Punjab 148104'
 state.invoicePreferences ??= { brandName: 'PunjabShip', sellerAddress: brandAddress, supportEmail: 'info@punjabshiplogistics.com', supportPhone: '+91 84878 81121', prefix: 'PS-INV', template: 'classic', includeLogo: true, includeSignature: false }
 state.aboutUs ??= { slug: 'about_us', title: 'About PunjabShip', content: `<h2>PunjabShip - Ship the world</h2><p>Plan domestic and international shipments with air, sea, road and courier choices in one clear booking workflow.</p><h3>Contact us</h3><p>${brandAddress}</p><p><a href="mailto:info@punjabshiplogistics.com">info@punjabshiplogistics.com</a></p><p><a href="tel:+918487881121">+91 84878 81121</a></p>` }
@@ -403,6 +456,52 @@ http.createServer(async (req, res) => {
     }
     if (path === '/api/dashboard/tour') return send({ success: true, data: { version: 1, status: 'dismissed', completedPages: [] } })
     if (path === '/api/dashboard/invoice-status') return send({ success: true, status: { pending: { count: 0, totalAmount: 0 }, paid: { count: 0, totalAmount: 0 }, overdue: { count: 0, totalAmount: 0 } } })
+    if (path === '/api/serviceability/locations' && req.method === 'GET') {
+      const page = Math.max(1, Number(requestUrl.searchParams.get('page') || 1))
+      const limit = Math.min(2000, Math.max(1, Number(requestUrl.searchParams.get('limit') || 50)))
+      const pincode = String(requestUrl.searchParams.get('pincode') || '').trim().toLowerCase()
+      const city = String(requestUrl.searchParams.get('city') || '').trim().toLowerCase()
+      const stateName = String(requestUrl.searchParams.get('state') || '').trim().toLowerCase()
+      let locations = serviceabilityLocations()
+      if (pincode) locations = locations.filter((item) => item.pincode.toLowerCase().includes(pincode))
+      if (city) locations = locations.filter((item) => `${item.city} ${item.district || ''}`.toLowerCase().includes(city))
+      if (stateName) locations = locations.filter((item) => item.state.toLowerCase().includes(stateName))
+      const start = (page - 1) * limit
+      return send({ success: true, data: locations.slice(start, start + limit), total: locations.length, totalCount: locations.length, page, limit, totalPages: Math.max(1, Math.ceil(locations.length / limit)) })
+    }
+    if (path === '/api/serviceability/locations' && req.method === 'POST') {
+      const pincode = String(body.pincode || '').trim()
+      if (!/^[1-9]\d{5}$/.test(pincode) || !body.city || !body.state) return send({ success: false, error: 'Valid pincode, city and state are required.' }, 400)
+      const location = { id: `custom-location-${randomUUID()}`, pincode, city: String(body.city).trim(), state: String(body.state).trim(), country: 'India', tags: Array.isArray(body.tags) ? body.tags : [], source: 'PunjabShip' }
+      state.customServiceabilityLocations.push(location)
+      save()
+      return send(location, 201)
+    }
+    const serviceabilityMatch = path.match(/^\/api\/serviceability\/locations\/([^/]+)$/)
+    if (serviceabilityMatch && req.method === 'GET') {
+      const location = serviceabilityLocations().find((item) => item.id === serviceabilityMatch[1])
+      return location ? send(location) : send({ success: false, error: 'Location not found.' }, 404)
+    }
+    if (serviceabilityMatch && req.method === 'PUT') {
+      const id = serviceabilityMatch[1]
+      const location = serviceabilityLocations().find((item) => item.id === id)
+      if (!location) return send({ success: false, error: 'Location not found.' }, 404)
+      const updated = { ...location, ...body, id, country: 'India' }
+      const customIndex = state.customServiceabilityLocations.findIndex((item) => item.id === id)
+      if (customIndex >= 0) state.customServiceabilityLocations[customIndex] = updated
+      else state.serviceabilityOverrides[id] = updated
+      save()
+      return send(updated)
+    }
+    if (serviceabilityMatch && req.method === 'DELETE') {
+      const id = serviceabilityMatch[1]
+      if (!serviceabilityLocations().some((item) => item.id === id)) return send({ success: false, error: 'Location not found.' }, 404)
+      state.customServiceabilityLocations = state.customServiceabilityLocations.filter((item) => item.id !== id)
+      delete state.serviceabilityOverrides[id]
+      if (!state.deletedServiceabilityLocationIds.includes(id)) state.deletedServiceabilityLocationIds.push(id)
+      save()
+      return send({ success: true, message: 'Location removed.' })
+    }
     if (/orders/.test(path) && req.method === 'GET') return send({ success: true, orders: state.orders, data: state.orders, totalCount: state.orders.length, total: state.orders.length, totalPages: 1, page: 1, counts: {} })
     if (/notifications/.test(path)) return send({ success: true, data: [], notifications: [], unreadCount: 0, total: 0 })
     if (/\/kpis$|cod-remittance\/stats$|payable-report$/.test(path)) return send({ success: true, data: {} })
