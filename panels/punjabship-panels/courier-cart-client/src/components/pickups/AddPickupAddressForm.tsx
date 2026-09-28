@@ -37,7 +37,8 @@ const AddPickupAddressForm = ({
   const updatePickupAddressMutation = useUpdatePickupAddress()
   const [serverError, setServerError] = useState<string | null>(null)
 
-  const isEdit = !!initialData?.pickupId
+  const existingPickupId = initialData?.pickupId || initialData?.id
+  const isEdit = !!existingPickupId
 
   const { control, handleSubmit, setValue, watch, reset } = useForm<PickupFormValues>({
     mode: 'onBlur',
@@ -59,8 +60,8 @@ const AddPickupAddressForm = ({
         rtoAddress: formData.useDifferentRTO ? formData.rtoAddress : undefined,
       }
 
-      if (isEdit && initialData?.pickup?.id) {
-        await updatePickupAddressMutation.mutateAsync({ id: initialData.pickupId, payload })
+      if (isEdit && existingPickupId) {
+        await updatePickupAddressMutation.mutateAsync({ id: existingPickupId, payload })
         toast.open({ message: 'Pickup address updated successfully', severity: 'success' })
       } else {
         await createPickupAddressMutation.mutateAsync(payload)

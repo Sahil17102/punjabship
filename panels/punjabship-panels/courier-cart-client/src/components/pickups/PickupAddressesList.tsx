@@ -154,7 +154,7 @@ const PickupAddressesList = ({
             }}
           />
           <CustomSwitch
-            onChange={(event) => handleStatusToggle(row.pickupId, event?.target?.checked)}
+            onChange={(event) => handleStatusToggle(row.pickupId || row.id, event.target.checked)}
             checked={Boolean(value)}
           />
         </Stack>
@@ -183,7 +183,7 @@ const PickupAddressesList = ({
             <Button
               size="small"
               variant="outlined"
-              onClick={() => handleMakePrimary(row.pickupId)}
+              onClick={() => handleMakePrimary(row.pickupId || row.id)}
               sx={{ textTransform: 'none', fontSize: '0.76rem' }}
             >
               Make Primary

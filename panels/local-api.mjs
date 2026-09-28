@@ -288,6 +288,23 @@ if (primarySellerState && !state.pickupAddresses[primarySellerState.id]?.length)
     updatedAt: primarySellerState.updatedAt,
   }]
 }
+for (const addresses of Object.values(state.pickupAddresses)) {
+  if (!Array.isArray(addresses)) continue
+  for (const address of addresses) {
+    const pickupId = address.pickupId || address.id || `pickup-${randomUUID()}`
+    address.id = pickupId
+    address.pickupId = pickupId
+    address.pickup = address.pickup || {}
+    address.pickup.id ||= address.addressId || `address-${pickupId}`
+    address.addressId ||= address.pickup.id
+    address.pickup.contactPhone ||= address.pickup.contactNumber || ''
+    if (!address.rto && address.rtoAddress) address.rto = address.rtoAddress
+    address.isPickupEnabled ??= true
+    address.isPrimary ??= false
+    address.isRTOSame ??= !address.rto
+  }
+  if (addresses.length && !addresses.some((address) => address.isPrimary)) addresses[0].isPrimary = true
+}
 state.customServiceabilityLocations ??= []
 state.serviceabilityOverrides ??= {}
 state.deletedServiceabilityLocationIds ??= []
@@ -1010,8 +1027,29 @@ http.createServer(async (req, res) => {
       const seller = currentSeller(req)
       if (!seller) return send({ error: 'Authentication required.' }, 401)
       const now = new Date().toISOString()
-      const address = { ...body, id: `pickup-${randomUUID()}`, userId: seller.id, createdAt: now, updatedAt: now }
-      state.pickupAddresses[seller.id] = [...(state.pickupAddresses[seller.id] || []), address]
+      const addresses = state.pickupAddresses[seller.id] || []
+      const pickupId = `pickup-${randomUUID()}`
+      const isPrimary = body.isPrimary === true || addresses.length === 0
+      const pickup = { ...(body.pickup || {}), id: body.pickup?.id || `address-${randomUUID()}` }
+      const rto = body.rtoAddress ? { ...body.rtoAddress, id: body.rtoAddress.id || `address-${randomUUID()}` } : null
+      const address = {
+        ...body,
+        id: pickupId,
+        pickupId,
+        addressId: pickup.id,
+        rtoAddressId: rto?.id || null,
+        userId: seller.id,
+        pickup,
+        rto,
+        isPrimary,
+        isPickupEnabled: body.isPickupEnabled !== false,
+        isRTOSame: !rto,
+        createdAt: now,
+        updatedAt: now,
+      }
+      delete address.rtoAddress
+      if (isPrimary) addresses.forEach((item) => { item.isPrimary = false })
+      state.pickupAddresses[seller.id] = [...addresses, address]
       save()
       return send(address, 201)
     }
@@ -1020,9 +1058,18 @@ http.createServer(async (req, res) => {
       const seller = currentSeller(req)
       if (!seller) return send({ error: 'Authentication required.' }, 401)
       const addresses = state.pickupAddresses[seller.id] || []
-      const address = addresses.find((item) => item.id === pickupMatch[1])
+      const pickupId = decodeURIComponent(pickupMatch[1])
+      const address = addresses.find((item) => item.id === pickupId || item.pickupId === pickupId)
       if (!address) return send({ error: 'Pickup address not found.' }, 404)
-      Object.assign(address, body, { updatedAt: new Date().toISOString() })
+      if (body.isPrimary === true) addresses.forEach((item) => { item.isPrimary = item === address })
+      const updates = { ...body }
+      if ('rtoAddress' in updates) {
+        updates.rto = updates.rtoAddress || null
+        updates.rtoAddressId = updates.rto?.id || null
+        updates.isRTOSame = !updates.rto
+        delete updates.rtoAddress
+      }
+      Object.assign(address, updates, { id: address.id || pickupId, pickupId: address.pickupId || pickupId, updatedAt: new Date().toISOString() })
       save()
       return send({ success: true, data: address })
     }
