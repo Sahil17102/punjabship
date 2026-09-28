@@ -354,7 +354,7 @@ export default function Sidebar({
       <Stack
         direction="row"
         alignItems="center"
-        justifyContent={shouldShowExpanded ? 'space-between' : 'center'}
+        justifyContent={shouldShowExpanded ? 'flex-start' : 'center'}
         sx={{
           px: shouldShowExpanded ? 1.25 : 0.75,
           py: 1.05,
@@ -364,8 +364,8 @@ export default function Sidebar({
       >
         <Box
           sx={{
-            width: 40,
-            height: 40,
+            width: shouldShowExpanded ? 72 : 40,
+            height: shouldShowExpanded ? 48 : 40,
             borderRadius: 1.5,
             display: 'flex',
             alignItems: 'center',
@@ -377,22 +377,33 @@ export default function Sidebar({
             component="img"
             src={LOGO_SRC}
             alt="PunjabShip"
-            sx={{ width: '90%', height: '90%', objectFit: 'contain' }}
+            sx={{ width: '100%', height: '100%', objectFit: 'contain' }}
           />
         </Box>
         <Box
           sx={{
             flex: 1,
             minWidth: 0,
-            ml: shouldShowExpanded ? 1 : 0,
-            maxWidth: shouldShowExpanded ? 170 : 0,
+            ml: shouldShowExpanded ? 1.25 : 0,
+            maxWidth: shouldShowExpanded ? 130 : 0,
             opacity: shouldShowExpanded ? 1 : 0,
             overflow: 'hidden',
             visibility: shouldShowExpanded ? 'visible' : 'hidden',
             transition: 'opacity 160ms ease, max-width 240ms ease, margin 240ms ease',
           }}
         >
-            <Box component="img" src="/logo/punjabship-logo.png" alt="PunjabShip" sx={{ width: 155, maxWidth: '100%', height: 52, objectFit: 'contain' }} />
+          <Typography
+            sx={{
+              color: BRAND_INK,
+              fontSize: '0.92rem',
+              fontWeight: 800,
+              letterSpacing: '0.02em',
+              lineHeight: 1.15,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            Client Panel
+          </Typography>
         </Box>
       </Stack>
 
