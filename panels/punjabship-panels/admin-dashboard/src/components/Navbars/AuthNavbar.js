@@ -22,7 +22,7 @@ export default function AuthNavbar(props) {
 
   const brand = (
     <Link href={`${process.env.PUBLIC_URL}/#/`} display="flex" lineHeight="100%" fontWeight="700" justifyContent="center" alignItems="center" color={mainText}>
-      <Box as="img" src="/logo/punjabship-mark.svg" alt="PunjabShip" h="34px" w="34px" objectFit="contain" borderRadius="10px" me="10px" />
+      <Box as="img" src="/logo/punjabship-logo.png" alt="PunjabShip" h="34px" w="51px" objectFit="contain" borderRadius="10px" me="10px" />
       <Text fontSize="sm" mt="1px">
         {logoText || 'PunjabShip'}
       </Text>

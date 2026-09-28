@@ -73,7 +73,7 @@ export default function Dashboard() {
           }
           image={
             <Image
-              src="/logo/punjabship-mark.svg"
+              src="/logo/punjabship-logo.png"
               alt='PunjabShip'
               minWidth={{ md: "300px", lg: "auto" }}
               borderRadius="20px"

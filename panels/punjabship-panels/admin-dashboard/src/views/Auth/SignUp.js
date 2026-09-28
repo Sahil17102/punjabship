@@ -64,7 +64,7 @@ function SignUp() {
             <Flex align="center" gap={4} mb={8}>
               <Box
                 as="img"
-                src="/logo/punjabship-mark.svg"
+                src="/logo/punjabship-logo.png"
                 alt="PunjabShip"
                 h="56px"
                 w="56px"

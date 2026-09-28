@@ -225,7 +225,7 @@ const SidebarContent = ({ logoText, routes, sidebarWidth, onHoverChange }) => {
         ) : (
           <Box
             as="img"
-            src="/logo/punjabship-mark.svg"
+            src="/logo/punjabship-logo.png"
             alt="PunjabShip"
             h="38px"
             w="38px"

@@ -221,7 +221,7 @@ export default function UserOnboarding() {
             >
               <Box
                 component="img"
-                src="/logo/punjabship-mark.svg"
+                src="/logo/punjabship-logo.png"
                 alt="PunjabShip"
                 sx={{ width: { xs: 150, md: 176 }, height: 'auto', mb: 2.2 }}
               />

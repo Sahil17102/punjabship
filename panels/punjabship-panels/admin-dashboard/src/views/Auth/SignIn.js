@@ -424,7 +424,7 @@ function SignIn() {
             <Text fontSize="xs" fontWeight="700">
               Pricing · Operations · Support · Finance
             </Text>
-            <Box as="img" src="/logo/punjabship-mark.svg" alt="" boxSize="40px" />
+            <Box as="img" src="/logo/punjabship-logo.png" alt="" w="60px" h="40px" objectFit="contain" />
           </HStack>
         </Flex>
       </GridItem>

@@ -333,7 +333,7 @@ const ShopifyInstallPage = () => {
         <Stack spacing={2.5} alignItems="center" textAlign="center">
           <Box
             component="img"
-            src="/logo/punjabship-mark.svg"
+            src="/logo/punjabship-logo.png"
             alt="PunjabShip"
             sx={{ width: 140, height: 'auto' }}
           />

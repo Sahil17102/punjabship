@@ -99,7 +99,7 @@ function SidebarResponsive(props) {
   const brand = (
     <Box pt="24px" mb="10px">
       <Flex align="center" justify="center" gap="10px" mb="16px" fontWeight="bold">
-        <Box as="img" src="/logo/punjabship-mark.svg" alt="PunjabShip" h="32px" w="32px" objectFit="contain" borderRadius="10px" />
+        <Box as="img" src="/logo/punjabship-logo.png" alt="PunjabShip" h="32px" w="48px" objectFit="contain" borderRadius="10px" />
         <Text fontSize="sm" color={textColor} fontWeight="700">
           {logoText}
         </Text>

@@ -74,7 +74,7 @@ const BRAND_ORANGE = '#0877C9'
 const BRAND_SURFACE = '#FBFAFE'
 const BRAND_INK = '#141414'
 const BRAND_BORDER = '#DED9E8'
-const LOGO_SRC = '/logo/punjabship-mark.svg'
+const LOGO_SRC = '/logo/punjabship-logo.png'
 
 const navItems: NavItem[] = [
   {

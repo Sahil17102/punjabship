@@ -483,7 +483,7 @@ export default function TrackingPage() {
       >
         <Box
           component="img"
-          src="/logo/punjabship-mark.svg"
+          src="/logo/punjabship-logo.png"
           alt="PunjabShip Logo"
           sx={{ width: 72, height: 'auto', mb: 0.5, borderRadius: 1.5 }}
         />
