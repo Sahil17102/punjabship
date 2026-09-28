@@ -9,8 +9,15 @@ export interface PaymentOptions {
 
 export const paymentOptionsService = {
   getPaymentOptions: async (): Promise<PaymentOptions> => {
-    const response = await axiosInstance.get<PaymentOptions>('/payment-options')
-    return response.data
+    const response = await axiosInstance.get<PaymentOptions | { settings?: Partial<PaymentOptions> }>('/payment-options')
+    const responseData = response.data as Partial<PaymentOptions> & { settings?: Partial<PaymentOptions> }
+    const payload = responseData.settings ?? responseData
+
+    return {
+      codEnabled: payload.codEnabled ?? true,
+      prepaidEnabled: payload.prepaidEnabled ?? true,
+      minWalletRecharge: Number(payload.minWalletRecharge ?? 0),
+      gstPercent: Number(payload.gstPercent ?? 0),
+    }
   },
 }
-

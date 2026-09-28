@@ -218,6 +218,7 @@ const orders = Array.from({ length: 12 }, (_, i) => ({
 
 const defaultState = {
   users: [demoUser, primarySeller], orders, pendingOtps: {}, pickupAddresses: {},
+  paymentOptions: { codEnabled: true, prepaidEnabled: true, minWalletRecharge: 100, gstPercent: 18 },
   customServiceabilityLocations: [], serviceabilityOverrides: {}, deletedServiceabilityLocationIds: [],
   plans: [
     { id: 'starter-b2c', name: 'Starter B2C', business_type: 'b2c', is_active: true },
@@ -259,6 +260,12 @@ if (existingPrimarySeller) {
 state.orders ??= orders
 state.pendingOtps ??= {}
 state.pickupAddresses ??= {}
+state.paymentOptions = {
+  codEnabled: state.paymentOptions?.codEnabled ?? true,
+  prepaidEnabled: state.paymentOptions?.prepaidEnabled ?? true,
+  minWalletRecharge: Number(state.paymentOptions?.minWalletRecharge ?? 100),
+  gstPercent: Number(state.paymentOptions?.gstPercent ?? 18),
+}
 const primarySellerState = state.users.find((item) => item.email === PRIMARY_SELLER_EMAIL)
 if (primarySellerState && !state.pickupAddresses[primarySellerState.id]?.length) {
   state.pickupAddresses[primarySellerState.id] = [{
@@ -1018,6 +1025,29 @@ http.createServer(async (req, res) => {
       Object.assign(seller, body, { updatedAt: new Date().toISOString() })
       save()
       return send({ message: 'Saved', user: seller })
+    }
+    if (path === '/api/payment-options' && req.method === 'GET') {
+      return send(state.paymentOptions)
+    }
+    if (path === '/api/admin/payment-options' && req.method === 'GET') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      return send({ success: true, settings: state.paymentOptions })
+    }
+    if (path === '/api/admin/payment-options' && req.method === 'PUT') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const next = {
+        codEnabled: body.codEnabled ?? state.paymentOptions.codEnabled,
+        prepaidEnabled: body.prepaidEnabled ?? state.paymentOptions.prepaidEnabled,
+        minWalletRecharge: Number(body.minWalletRecharge ?? state.paymentOptions.minWalletRecharge),
+        gstPercent: Number(body.gstPercent ?? state.paymentOptions.gstPercent),
+      }
+      if (!next.codEnabled && !next.prepaidEnabled) return send({ success: false, message: 'Enable COD, prepaid, or both.' }, 400)
+      if (!Number.isFinite(next.minWalletRecharge) || next.minWalletRecharge < 0 || !Number.isFinite(next.gstPercent) || next.gstPercent < 0) {
+        return send({ success: false, message: 'Wallet recharge and GST values must be zero or greater.' }, 400)
+      }
+      state.paymentOptions = next
+      save()
+      return send({ success: true, settings: state.paymentOptions, message: 'Payment options updated.' })
     }
     if (path === '/api/admin/users/users-management' && req.method === 'GET') {
       const search = String(requestUrl.searchParams.get('search') || '').trim().toLowerCase()
