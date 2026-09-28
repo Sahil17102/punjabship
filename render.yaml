@@ -41,6 +41,8 @@ services:
         value: https://PunjabShip-logisticbackend.onrender.com
       - key: FRONTEND_URL
         value: https://punjabship.onrender.com
+      - key: VITE_CLIENT_PORTAL_URL
+        value: https://punjabshipclient1.onrender.com
     headers:
       - path: /*
         name: Cache-Control

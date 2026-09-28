@@ -8,6 +8,8 @@ import {
 } from 'lucide-react'
 import { Link, NavLink, Route as RouterRoute, Routes, useLocation } from 'react-router-dom'
 
+const CLIENT_PORTAL_URL = (import.meta.env.VITE_CLIENT_PORTAL_URL || 'https://punjabshipclient1.onrender.com').replace(/\/$/, '')
+
 const productMenuGroups = [
   {
     title: 'Shipping',
@@ -418,7 +420,7 @@ function Header() {
           </div>
         </nav>
         <div className="nav-actions">
-          <Link className="login-button" to="/login">Sign In</Link>
+          <a className="login-button" href={`${CLIENT_PORTAL_URL}/login`}>Sign In</a>
           <Link className="try-button" to="/rate-calculator">Try for Free</Link>
           <button
             className="menu-button"
@@ -475,7 +477,7 @@ function Header() {
             </div>
           )}
           <div className="mobile-auth-actions">
-            <Link className="login-button mobile-login" to="/login">Sign In</Link>
+            <a className="login-button mobile-login" href={`${CLIENT_PORTAL_URL}/login`}>Sign In</a>
             <Link className="try-button" to="/rate-calculator">Try for Free</Link>
           </div>
         </div>
@@ -1668,6 +1670,25 @@ function Footer() {
   )
 }
 
+function LoginRedirect() {
+  useEffect(() => {
+    window.location.replace(`${CLIENT_PORTAL_URL}/login`)
+  }, [])
+
+  return (
+    <section className="tool-page">
+      <div className="shell tool-layout">
+        <div>
+          <span className="eyebrow">SECURE CLIENT ACCESS</span>
+          <h1>Opening PunjabShip Sign In…</h1>
+          <p>If you are not redirected automatically, use the button below.</p>
+          <a className="button primary" href={`${CLIENT_PORTAL_URL}/login`}>Continue to Sign In <ArrowRight size={17} /></a>
+        </div>
+      </div>
+    </section>
+  )
+}
+
 export default function App() {
   return (
     <>
@@ -1682,6 +1703,7 @@ export default function App() {
           <RouterRoute path="/rate-calculator" element={<RateCalculator />} />
           <RouterRoute path="/blogs" element={<ExplorePage type="blogs" />} />
           <RouterRoute path="/tracking" element={<Tracking />} />
+          <RouterRoute path="/login" element={<LoginRedirect />} />
           <RouterRoute path="*" element={<Home />} />
         </Routes>
       </main>

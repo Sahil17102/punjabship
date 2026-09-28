@@ -8,6 +8,7 @@ const routes = [
   'weight-calculator',
   'rate-calculator',
   'tracking',
+  'login',
   'blogs',
   'integrations',
   'integrations/sales-channels',
