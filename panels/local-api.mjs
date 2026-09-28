@@ -25,6 +25,66 @@ const SHIPGLOBAL_SERVICE = process.env.SHIPGLOBAL_SERVICE || 'Shipglobal Direct'
 const SHIPGLOBAL_CURRENCY = process.env.SHIPGLOBAL_CURRENCY || 'INR'
 const shipGlobal = createShipGlobalClient()
 
+const DEFAULT_MANUAL_COURIER_ID = 91001
+const DEFAULT_B2C_ZONES = [
+  { id: 'b2c-local', code: 'A', name: 'Local', description: 'Same city / nearby pincode cluster', business_type: 'b2c', is_active: true },
+  { id: 'b2c-state', code: 'B', name: 'Within State', description: 'Pickup and delivery in the same state', business_type: 'b2c', is_active: true },
+  { id: 'b2c-metro', code: 'C', name: 'Metro', description: 'Major metro destination', business_type: 'b2c', is_active: true },
+  { id: 'b2c-roi', code: 'D', name: 'Rest of India', description: 'All standard India destinations', business_type: 'b2c', is_active: true },
+  { id: 'b2c-special', code: 'E', name: 'Special', description: 'North East, Jammu & Kashmir and island destinations', business_type: 'b2c', is_active: true },
+]
+const DEFAULT_B2B_ZONES = [
+  { id: 'b2b-north', code: 'N', name: 'North', description: 'North India', business_type: 'b2b', is_active: true },
+  { id: 'b2b-west', code: 'W', name: 'West', description: 'West India', business_type: 'b2b', is_active: true },
+  { id: 'b2b-south', code: 'S', name: 'South', description: 'South India', business_type: 'b2b', is_active: true },
+  { id: 'b2b-east', code: 'E', name: 'East', description: 'East India', business_type: 'b2b', is_active: true },
+  { id: 'b2b-central', code: 'C', name: 'Central', description: 'Central India', business_type: 'b2b', is_active: true },
+  { id: 'b2b-northeast', code: 'NE', name: 'North East', description: 'North East and special destinations', business_type: 'b2b', is_active: true },
+]
+
+const defaultManualCourier = () => ({
+  id: 'manual-punjabship', courierId: DEFAULT_MANUAL_COURIER_ID, code: 'PUNJABSHIP',
+  displayName: 'PunjabShip Manual', serviceProvider: 'manual', supportsB2c: true,
+  supportsB2b: true, supportsPrepaid: true, supportsCod: true, minWeightKg: 0.5,
+  maxWeightKg: 1000, isEnabled: true, pincodeScope: 'all_india', pincodes: [],
+  createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+})
+
+const makeSlab = (rate, rto, extra, extraRto) => ({
+  forward: [{ weight_from: 0, weight_to: 0.5, rate, extra_rate: extra, extra_weight_unit: 0.5 }],
+  rto: [{ weight_from: 0, weight_to: 0.5, rate: rto, extra_rate: extraRto, extra_weight_unit: 0.5 }],
+})
+const defaultB2cRate = () => ({
+  id: 'rate-punjabship-b2c', plan_id: 'starter-b2c', businessType: 'b2c',
+  courier_id: DEFAULT_MANUAL_COURIER_ID, courier_name: 'PunjabShip Manual',
+  service_provider: 'manual', mode: 'standard', min_weight: 0.5,
+  cod_charges: 35, cod_percent: 1.5, other_charges: 0,
+  rates: {
+    Local: { forward: 45, rto: 40 }, 'Within State': { forward: 55, rto: 50 },
+    Metro: { forward: 65, rto: 60 }, 'Rest of India': { forward: 75, rto: 70 },
+    Special: { forward: 95, rto: 90 },
+  },
+  zone_slabs: {
+    Local: makeSlab(45, 40, 22, 20), 'Within State': makeSlab(55, 50, 26, 24),
+    Metro: makeSlab(65, 60, 30, 28), 'Rest of India': makeSlab(75, 70, 35, 32),
+    Special: makeSlab(95, 90, 45, 42),
+  },
+})
+const defaultB2bRate = () => ({
+  id: 'rate-punjabship-b2b', plan_id: 'starter-b2b', businessType: 'b2b',
+  courier_id: DEFAULT_MANUAL_COURIER_ID, courier_name: 'PunjabShip Manual',
+  service_provider: 'manual', mode: 'surface', min_weight: 10,
+  cod_charges: 75, cod_percent: 1, other_charges: 0,
+  rates: {
+    North: { forward_per_kg: 12, rto_per_kg: 10, min_weight: 10 },
+    West: { forward_per_kg: 15, rto_per_kg: 13, min_weight: 10 },
+    South: { forward_per_kg: 18, rto_per_kg: 16, min_weight: 10 },
+    East: { forward_per_kg: 17, rto_per_kg: 15, min_weight: 10 },
+    Central: { forward_per_kg: 14, rto_per_kg: 12, min_weight: 10 },
+    'North East': { forward_per_kg: 24, rto_per_kg: 22, min_weight: 10 },
+  },
+})
+
 const toServiceabilityLocation = (office, index) => ({
   id: `india-post-${index + 1}`,
   pincode: office.pincode,
@@ -158,6 +218,10 @@ const defaultState = {
     widgetOrder: ['quickStats', 'quickActions', 'insights', 'actionItems', 'performanceMetrics', 'ordersTrend', 'financialHealth', 'recentActivity', 'todaysOperations', 'orderStatusChart', 'courierComparison', 'metricsOverview', 'courierPerformance', 'topDestinations'],
     layout: {}, dateRange: {},
   },
+  manualCouriers: [defaultManualCourier()],
+  zones: [...DEFAULT_B2C_ZONES, ...DEFAULT_B2B_ZONES],
+  shippingRates: [defaultB2cRate(), defaultB2bRate()],
+  manualShipments: [], manualShipmentEvents: [], manualShipmentLegs: [],
 }
 const state = existsSync(dataFile) ? JSON.parse(readFileSync(dataFile, 'utf8')) : defaultState
 if (!Array.isArray(state.users)) state.users = state.user ? [state.user] : [demoUser]
@@ -210,6 +274,24 @@ state.deletedServiceabilityLocationIds ??= []
 state.plans ??= defaultState.plans
 state.preferences ??= defaultState.preferences
 state.walletTransactions ??= []
+state.manualCouriers ??= []
+state.zones ??= []
+state.shippingRates ??= []
+state.manualShipments ??= []
+state.manualShipmentEvents ??= []
+state.manualShipmentLegs ??= []
+if (!state.manualCouriers.some((item) => item.id === 'manual-punjabship')) state.manualCouriers.push(defaultManualCourier())
+for (const zone of [...DEFAULT_B2C_ZONES, ...DEFAULT_B2B_ZONES]) {
+  if (!state.zones.some((item) => item.id === zone.id)) state.zones.push(zone)
+}
+if (!state.shippingRates.some((item) => item.id === 'rate-punjabship-b2c')) state.shippingRates.push(defaultB2cRate())
+if (!state.shippingRates.some((item) => item.id === 'rate-punjabship-b2b')) state.shippingRates.push(defaultB2bRate())
+for (const seller of state.users) {
+  if (seller.approved && (seller.businessType || []).map((item) => String(item).toLowerCase()).includes('b2b')) {
+    seller.currentB2BPlanId ||= 'starter-b2b'
+    seller.currentB2BPlanName ||= 'Starter B2B'
+  }
+}
 
 for (const seller of state.users) {
   if (
@@ -573,6 +655,9 @@ const orderForPanels = (order) => {
     merchantEmail: seller?.email || '',
     buyer_name: order.buyer_name || order.consignee?.name || order.customer_name || '',
     buyer_phone: order.buyer_phone || order.consignee?.phone || order.customer_phone || '',
+    city: order.city || order.consignee?.city || order.shipping_details?.city || '',
+    state: order.state || order.consignee?.state || order.shipping_details?.state || '',
+    pincode: order.pincode || order.consignee?.pincode || order.shipping_details?.pincode || '',
     order_type: order.order_type || order.payment_type || 'prepaid',
     order_status: order.order_status || order.status || 'pending',
     order_date: order.order_date || order.created_at,
@@ -613,6 +698,187 @@ const localTracking = (order) => ({
   shipment_info: order.provider_last_status || order.delivery_message || '',
 })
 
+const normalizeBusinessType = (value) => String(value || 'b2c').trim().toLowerCase()
+const normalizePincodes = (values) => Array.from(new Set((Array.isArray(values) ? values : [])
+  .map((value) => String(value || '').replace(/\D/g, '').slice(0, 6))
+  .filter((value) => /^[1-9]\d{5}$/.test(value))))
+const courierShipmentCount = (courier) => state.manualShipments.filter((item) => item.manualCourierId === courier.id).length
+const courierPincodes = (courier) => courier.pincodeScope === 'all_india'
+  ? serviceabilityLocations().map((item) => item.pincode).filter((item) => !(courier.excludedPincodes || []).includes(item))
+  : normalizePincodes(courier.pincodes)
+const manualCourierRow = (courier) => ({
+  ...courier,
+  pincodeCount: courier.pincodeScope === 'all_india'
+    ? new Set(getSeededServiceabilityLocations().map((item) => item.pincode).filter((value) => !(courier.excludedPincodes || []).includes(value))).size
+    : normalizePincodes(courier.pincodes).length,
+  shipmentCount: courierShipmentCount(courier),
+})
+
+let pincodeOfficeMap = null
+const officeForPincode = (pincode) => {
+  if (!pincodeOfficeMap) {
+    pincodeOfficeMap = new Map()
+    for (const office of loadIndiaPostData()) {
+      if (!pincodeOfficeMap.has(String(office.pincode))) pincodeOfficeMap.set(String(office.pincode), office)
+    }
+  }
+  return pincodeOfficeMap.get(String(pincode || '').trim()) || null
+}
+const normalizedState = (pincode) => String(officeForPincode(pincode)?.state || '').trim().toLowerCase()
+const SPECIAL_STATES = new Set(['andaman & nicobar islands', 'arunachal pradesh', 'assam', 'jammu & kashmir', 'ladakh', 'manipur', 'meghalaya', 'mizoram', 'nagaland', 'sikkim', 'tripura'])
+const METRO_PREFIXES = ['110', '122', '201', '400', '560', '600', '700', '500', '411', '380']
+const b2cZoneFor = (origin, destination) => {
+  const originState = normalizedState(origin)
+  const destinationState = normalizedState(destination)
+  if (String(origin).slice(0, 3) === String(destination).slice(0, 3)) return state.zones.find((item) => item.id === 'b2c-local')
+  if (originState && originState === destinationState) return state.zones.find((item) => item.id === 'b2c-state')
+  if (SPECIAL_STATES.has(destinationState)) return state.zones.find((item) => item.id === 'b2c-special')
+  if (METRO_PREFIXES.includes(String(destination).slice(0, 3))) return state.zones.find((item) => item.id === 'b2c-metro')
+  return state.zones.find((item) => item.id === 'b2c-roi')
+}
+const B2B_STATE_ZONE = {
+  'punjab': 'North', 'haryana': 'North', 'himachal pradesh': 'North', 'delhi': 'North', 'uttar pradesh': 'North', 'uttarakhand': 'North', 'chandigarh': 'North', 'rajasthan': 'North',
+  'gujarat': 'West', 'maharashtra': 'West', 'goa': 'West', 'dadra & nagar haveli': 'West', 'daman & diu': 'West',
+  'karnataka': 'South', 'kerala': 'South', 'tamil nadu': 'South', 'telangana': 'South', 'andhra pradesh': 'South', 'puducherry': 'South',
+  'west bengal': 'East', 'odisha': 'East', 'bihar': 'East', 'jharkhand': 'East',
+  'madhya pradesh': 'Central', 'chhattisgarh': 'Central',
+}
+const b2bZoneFor = (destination) => {
+  const stateName = normalizedState(destination)
+  const name = SPECIAL_STATES.has(stateName) ? 'North East' : (B2B_STATE_ZONE[stateName] || 'North East')
+  return state.zones.find((item) => item.business_type === 'b2b' && item.name === name)
+}
+const courierSupportsRoute = (courier, origin, destination, shipmentType, paymentType, weightKg) => {
+  if (!courier.isEnabled) return false
+  if (shipmentType === 'b2b' ? !courier.supportsB2b : !courier.supportsB2c) return false
+  if (paymentType === 'cod' ? !courier.supportsCod : !courier.supportsPrepaid) return false
+  if (weightKg < Number(courier.minWeightKg || 0) || weightKg > Number(courier.maxWeightKg || Infinity)) return false
+  if (courier.pincodeScope === 'all_india') return Boolean(officeForPincode(origin) && officeForPincode(destination))
+  const covered = new Set(normalizePincodes(courier.pincodes))
+  return covered.has(String(origin)) && covered.has(String(destination))
+}
+const calculateB2cFreight = (rate, zoneName, weightKg) => {
+  const slab = rate.zone_slabs?.[zoneName]?.forward?.[0]
+  if (!slab) return null
+  const baseWeight = Number(slab.weight_to || rate.min_weight || 0.5)
+  const excess = Math.max(0, weightKg - baseWeight)
+  const increments = Math.ceil(excess / Number(slab.extra_weight_unit || 0.5))
+  return Number(slab.rate || 0) + increments * Number(slab.extra_rate || 0)
+}
+const manualCourierQuote = (courier, rate, body) => {
+  const shipmentType = normalizeBusinessType(body.shipment_type || body.shipmentType)
+  const origin = String(body.origin || body.pickupPincode || '')
+  const destination = String(body.destination || body.deliveryPincode || '')
+  const weightKg = Math.max(0, Number(body.weight || 0) / 1000)
+  const paymentType = String(body.payment_type || (Number(body.cod) ? 'cod' : 'prepaid')).toLowerCase()
+  if (!courierSupportsRoute(courier, origin, destination, shipmentType, paymentType, weightKg)) return null
+  const zone = shipmentType === 'b2b' ? b2bZoneFor(destination) : b2cZoneFor(origin, destination)
+  if (!zone) return null
+  const chargeableWeight = Math.max(weightKg, Number(rate.min_weight || courier.minWeightKg || 0.5))
+  const zoneRate = rate.rates?.[zone.name] || {}
+  const freight = shipmentType === 'b2b'
+    ? chargeableWeight * Number(zoneRate.forward_per_kg || 0)
+    : calculateB2cFreight(rate, zone.name, chargeableWeight)
+  if (!Number.isFinite(freight) || freight <= 0) return null
+  const orderAmount = Number(body.order_amount || body.orderAmount || 0)
+  const codCharge = paymentType === 'cod'
+    ? Math.max(Number(rate.cod_charges || 0), orderAmount * Number(rate.cod_percent || 0) / 100)
+    : 0
+  const other = Number(rate.other_charges || 0)
+  const subtotal = Number((freight + codCharge + other).toFixed(2))
+  const gstAmount = Number((subtotal * 0.18).toFixed(2))
+  const total = Number((subtotal + gstAmount).toFixed(2))
+  const optionKey = `manual:${courier.id}:${shipmentType}:${rate.id}`
+  return {
+    id: courier.courierId, courier_id: courier.courierId, name: courier.displayName,
+    displayName: courier.displayName, courier_option_key: optionKey,
+    integration_type: 'manual', serviceProvider: 'manual', mode: rate.mode,
+    rate: Number(freight.toFixed(2)), courier_cost_estimate: total,
+    chargeable_weight: Number((chargeableWeight * 1000).toFixed(0)),
+    minWeight: rate.min_weight, max_slab_weight: courier.maxWeightKg,
+    cod_charges: codCharge, other_charges: other, gst_percent: 18, gst_amount: gstAmount,
+    total_charges_without_gst: subtotal, total_charges_with_gst: total,
+    total_charges: total, wallet_debit_amount: total, booking_available: true, can_book: true,
+    approxZone: { id: zone.id, code: zone.code, name: zone.name }, zone_id: zone.id,
+    localRates: { forward: { shipping_rate_id: rate.id, zone_id: zone.id, forward_charges: Number(freight.toFixed(2)), cod_charges: codCharge, other_charges: other, gst_percent: 18, gst_amount: gstAmount, total_charges: total, wallet_debit_amount: total } },
+    provider_serviceability: { provider: 'PunjabShip Manual', booking_available: true, can_book: true },
+    edd: shipmentType === 'b2b' ? '4-8 business days' : '2-6 business days',
+  }
+}
+const availableManualQuotes = (body) => {
+  const businessType = normalizeBusinessType(body.shipment_type || body.shipmentType)
+  return state.manualCouriers.flatMap((courier) => {
+    const rate = state.shippingRates.find((item) => Number(item.courier_id) === Number(courier.courierId) && normalizeBusinessType(item.businessType) === businessType)
+    const quote = rate ? manualCourierQuote(courier, rate, body) : null
+    return quote ? [quote] : []
+  })
+}
+
+const isManualCourierOrder = (body) => String(`${body?.integration_type || ''} ${body?.courier_partner || ''} ${body?.courier_option_key || ''}`).toLowerCase().includes('manual') || state.manualCouriers.some((item) => Number(item.courierId) === Number(body?.courier_id))
+const orderDestinationPincode = (order) => String(order.pincode || order.consignee?.pincode || order.shipping_details?.pincode || '')
+const orderPickupPincode = (order) => String(order.pickup?.pincode || order.pickup_details?.pincode || order.pickupLocationPincode || '')
+const manualShipmentRow = (shipment) => {
+  const order = state.orders.find((item) => item.id === shipment.orderId) || {}
+  const seller = state.users.find((item) => item.id === order.user_id) || {}
+  return {
+    ...shipment, orderNumber: order.order_number || order.order_id || order.id,
+    orderType: order.type || 'b2c', paymentType: order.payment_type || order.order_type || 'prepaid',
+    orderAmount: Number(order.order_amount || order.total_amount || 0), merchantEmail: seller.email || '',
+    buyerName: order.buyer_name || order.customer_name || order.consignee?.name || '',
+    destinationPincode: orderDestinationPincode(order), createdAt: shipment.createdAt,
+  }
+}
+const createManualShipmentOrder = (seller, body, type) => {
+  const courier = state.manualCouriers.find((item) => Number(item.courierId) === Number(body.courier_id)) || state.manualCouriers.find((item) => String(body.courier_option_key || '').includes(item.id))
+  if (!courier?.isEnabled || (type === 'b2b' ? !courier.supportsB2b : !courier.supportsB2c)) throw Object.assign(new Error('Selected manual courier is not available for this shipment.'), { statusCode: 400 })
+  if (state.orders.some((item) => String(item.order_number) === String(body.order_number))) throw Object.assign(new Error('Order number already exists.'), { statusCode: 409 })
+  const now = new Date().toISOString()
+  const orderId = `manual-order-${randomUUID()}`
+  const localAwb = `PSM${Date.now()}${Math.floor(Math.random() * 900 + 100)}`
+  const freight = Number(body.walletDebitAmount || body.wallet_debit_amount || body.total_charges_with_gst || body.forwardCharges || body.freight_charges || 0)
+  if (freight > walletBalanceOf(seller)) throw Object.assign(new Error('Insufficient wallet balance for this shipment.'), { statusCode: 400 })
+  const order = {
+    ...body, id: orderId, order_id: body.order_number, user_id: seller.id, type,
+    integration_type: 'manual', courier_partner: courier.displayName, courier_id: courier.courierId,
+    courier_option_key: body.courier_option_key || `manual:${courier.id}:${type}`,
+    awb_number: localAwb, local_awb: localAwb, status: 'booked', order_status: 'booked',
+    freight_charges: freight, wallet_debit_amount: freight,
+    buyer_name: body.buyer_name || body.consignee?.name || body.name || '',
+    buyer_phone: body.buyer_phone || body.consignee?.phone || body.phone || '',
+    created_at: now, updated_at: now,
+  }
+  state.orders.unshift(order)
+  const shipment = {
+    id: `manual-shipment-${randomUUID()}`, orderId, manualCourierId: courier.id,
+    localAwb, commercialCourierName: courier.displayName, fulfilmentMode: 'unassigned',
+    operationStatus: 'booked', createdAt: now, updatedAt: now,
+  }
+  state.manualShipments.unshift(shipment)
+  state.manualShipmentEvents.unshift({ id: `event-${randomUUID()}`, shipmentId: shipment.id, statusCode: 'booked', statusText: 'Shipment booked', location: '', remarks: '', eventAt: now, source: 'system' })
+  order.tracking_events = [{ status_code: 'booked', event_time: now, message: 'Shipment booked', location: '' }]
+  if (freight > 0) {
+    seller.walletBalance = Number((walletBalanceOf(seller) - freight).toFixed(2))
+    state.walletTransactions.unshift({ id: `wallet-transaction-${randomUUID()}`, wallet_id: walletIdOf(seller), user_id: seller.id, amount: freight, type: 'debit', reason: 'shipment_booking', category: 'shipping_charges', ref: localAwb, meta: { courier_partner: courier.displayName, order_id: orderId }, currency: 'INR', created_at: now, balance_after: seller.walletBalance })
+  }
+  save()
+  return { order, shipment }
+}
+
+const parseMultipart = (raw, contentType) => {
+  const boundary = contentType.match(/boundary=(?:"([^"]+)"|([^;]+))/)?.slice(1).find(Boolean)
+  if (!boundary) return {}
+  const result = {}
+  for (const part of raw.split(`--${boundary}`)) {
+    const splitAt = part.indexOf('\r\n\r\n')
+    if (splitAt < 0) continue
+    const headers = part.slice(0, splitAt)
+    const name = headers.match(/name="([^"]+)"/)?.[1]
+    if (!name) continue
+    result[name] = part.slice(splitAt + 4).replace(/\r\n$/, '')
+  }
+  return result
+}
+
 http.createServer(async (req, res) => {
   const origin = String(req.headers.origin || '')
   const corsOrigin = allowedOrigin(origin)
@@ -630,7 +896,10 @@ http.createServer(async (req, res) => {
     const path = requestUrl.pathname.replace(/\/$/, '')
     let raw = ''
     for await (const chunk of req) raw += chunk
-    const body = raw ? JSON.parse(raw) : {}
+    const contentType = String(req.headers['content-type'] || '')
+    const body = !raw ? {} : contentType.includes('multipart/form-data')
+      ? parseMultipart(raw, contentType)
+      : JSON.parse(raw)
     console.log(req.method, path)
 
     if (path === '' || path === '/api/health') return send({ success: true, mode: 'punjabship-demo-api', integrations: { shipglobal: { configured: shipGlobal.isConfigured(), service: SHIPGLOBAL_SERVICE } } })
@@ -833,6 +1102,223 @@ http.createServer(async (req, res) => {
     if (path === '/api/admin/crm/session') return send({ success: true, data: { actorType: 'admin', scopeType: 'all', permissions: {} }, actorType: 'admin', scopeType: 'all', permissions: {} })
     if (path === '/api/admin/dashboard/stats' && req.method === 'GET') return send({ success: true, data: adminDashboardStats(requestUrl) })
 
+    if (path === '/api/admin/manual-couriers' && req.method === 'GET') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      return send({ success: true, data: state.manualCouriers.map(manualCourierRow) })
+    }
+    if (path === '/api/admin/manual-couriers' && req.method === 'POST') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const displayName = String(body.displayName || '').trim()
+      const code = String(body.code || '').trim().toUpperCase()
+      const minWeightKg = Number(body.minWeightKg)
+      const maxWeightKg = Number(body.maxWeightKg)
+      if (!displayName || !code) return send({ success: false, message: 'Courier name and internal code are required.' }, 400)
+      if (state.manualCouriers.some((item) => item.code === code)) return send({ success: false, message: 'A courier with this internal code already exists.' }, 409)
+      if (!Number.isFinite(minWeightKg) || !Number.isFinite(maxWeightKg) || minWeightKg <= 0 || maxWeightKg < minWeightKg) return send({ success: false, message: 'Enter a valid minimum and maximum weight.' }, 400)
+      const pincodes = normalizePincodes(body.pincodes)
+      const courier = {
+        id: `manual-${randomUUID()}`, courierId: Math.max(DEFAULT_MANUAL_COURIER_ID, ...state.manualCouriers.map((item) => Number(item.courierId) || 0)) + 1,
+        code, displayName, serviceProvider: 'manual', supportsB2c: Boolean(body.supportsB2c),
+        supportsB2b: Boolean(body.supportsB2b), supportsPrepaid: Boolean(body.supportsPrepaid),
+        supportsCod: Boolean(body.supportsCod), minWeightKg, maxWeightKg,
+        isEnabled: body.isEnabled !== false, pincodeScope: pincodes.length ? 'selected' : 'all_india', pincodes,
+        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      }
+      if (!courier.supportsB2c && !courier.supportsB2b) return send({ success: false, message: 'Enable B2C, B2B, or both.' }, 400)
+      if (!courier.supportsPrepaid && !courier.supportsCod) return send({ success: false, message: 'Enable prepaid, COD, or both.' }, 400)
+      state.manualCouriers.push(courier)
+      save()
+      return send({ success: true, data: manualCourierRow(courier), message: 'Manual courier created.' }, 201)
+    }
+    if (path === '/api/admin/manual-couriers/shipments/stats' && req.method === 'GET') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const rows = state.manualShipments
+      return send({ success: true, data: {
+        total: rows.length, unassigned: rows.filter((item) => item.fulfilmentMode === 'unassigned').length,
+        manual: rows.filter((item) => item.fulfilmentMode === 'manual').length,
+        integrated: rows.filter((item) => item.fulfilmentMode === 'integrated').length,
+        actionRequired: rows.filter((item) => item.operationStatus === 'action_required').length,
+      } })
+    }
+    if (path === '/api/admin/manual-couriers/shipments' && req.method === 'GET') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const search = String(requestUrl.searchParams.get('search') || '').toLowerCase()
+      const status = String(requestUrl.searchParams.get('status') || '')
+      const fulfilmentMode = String(requestUrl.searchParams.get('fulfilmentMode') || '')
+      let rows = state.manualShipments.map(manualShipmentRow)
+      if (search) rows = rows.filter((item) => JSON.stringify(item).toLowerCase().includes(search))
+      if (status) rows = rows.filter((item) => item.operationStatus === status)
+      if (fulfilmentMode) rows = rows.filter((item) => item.fulfilmentMode === fulfilmentMode)
+      rows.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+      const pageData = paginate(rows, requestUrl, 20)
+      return send({ success: true, ...pageData })
+    }
+    const manualShipmentDetailMatch = path.match(/^\/api\/admin\/manual-couriers\/shipments\/([^/]+)$/)
+    if (manualShipmentDetailMatch && req.method === 'GET') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const shipment = state.manualShipments.find((item) => item.id === manualShipmentDetailMatch[1])
+      if (!shipment) return send({ success: false, message: 'Manual shipment not found.' }, 404)
+      const order = state.orders.find((item) => item.id === shipment.orderId)
+      const merchant = state.users.find((item) => item.id === order?.user_id) || {}
+      return send({ success: true, data: { shipment: manualShipmentRow(shipment), order: orderForPanels(order), merchant, events: state.manualShipmentEvents.filter((item) => item.shipmentId === shipment.id).sort((a, b) => String(b.eventAt).localeCompare(String(a.eventAt))), legs: state.manualShipmentLegs.filter((item) => item.shipmentId === shipment.id), transactions: state.walletTransactions.filter((item) => item.meta?.order_id === order?.id) } })
+    }
+    const manualShipmentActionMatch = path.match(/^\/api\/admin\/manual-couriers\/shipments\/([^/]+)\/(manual|tracking|provider-options|release-provider-booking|reconcile-awb)$/)
+    if (manualShipmentActionMatch && req.method === 'POST') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const shipment = state.manualShipments.find((item) => item.id === manualShipmentActionMatch[1])
+      if (!shipment) return send({ success: false, message: 'Manual shipment not found.' }, 404)
+      const action = manualShipmentActionMatch[2]
+      const order = state.orders.find((item) => item.id === shipment.orderId)
+      if (action === 'provider-options') return send({ success: true, data: shipGlobal.isConfigured() ? [{ id: 99001, courier_id: 99001, name: 'ShipGlobal', displayName: 'ShipGlobal International', integration_type: 'shipglobal', courier_option_key: 'shipglobal-direct', booking_available: true, can_book: true }] : [] })
+      if (action === 'manual') { shipment.fulfilmentMode = 'manual'; shipment.operationStatus = 'manual_processing' }
+      if (action === 'release-provider-booking') { shipment.fulfilmentMode = 'unassigned'; shipment.operationStatus = 'action_required' }
+      if (action === 'reconcile-awb') {
+        if (!String(body.actualAwb || '').trim()) return send({ success: false, message: 'Actual provider AWB is required.' }, 400)
+        shipment.fulfilmentMode = 'integrated'; shipment.operationStatus = 'provider_booked'
+        state.manualShipmentLegs.push({ id: `leg-${randomUUID()}`, shipmentId: shipment.id, provider: body.integrationType, providerCourierName: body.courierPartner || body.integrationType, actualAwb: String(body.actualAwb).trim(), providerReference: body.providerReference || '', status: 'booked', isActive: true, createdAt: new Date().toISOString() })
+      }
+      if (action === 'tracking') {
+        const event = { id: `event-${randomUUID()}`, shipmentId: shipment.id, statusCode: body.statusCode || 'in_transit', statusText: body.statusText || 'Shipment updated', location: body.location || '', remarks: body.remarks || '', eventAt: body.eventAt || new Date().toISOString(), source: 'admin' }
+        state.manualShipmentEvents.unshift(event); shipment.operationStatus = event.statusCode; order.status = event.statusCode; order.order_status = event.statusCode; order.provider_last_status = event.statusText; order.updated_at = new Date().toISOString()
+        order.tracking_events = state.manualShipmentEvents.filter((item) => item.shipmentId === shipment.id).map((item) => ({ status_code: item.statusCode, event_time: item.eventAt, message: item.statusText, location: item.location }))
+      }
+      shipment.updatedAt = new Date().toISOString(); save()
+      return send({ success: true, message: 'Manual shipment updated.', data: manualShipmentRow(shipment) })
+    }
+    const manualShipmentRebookMatch = path.match(/^\/api\/admin\/manual-couriers\/shipments\/([^/]+)\/rebook$/)
+    if (manualShipmentRebookMatch && req.method === 'POST') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const shipment = state.manualShipments.find((item) => item.id === manualShipmentRebookMatch[1])
+      if (!shipment) return send({ success: false, message: 'Manual shipment not found.' }, 404)
+      const idempotencyKey = String(body.idempotencyKey || '').trim()
+      const prior = idempotencyKey && state.manualShipmentLegs.find((item) => item.shipmentId === shipment.id && item.idempotencyKey === idempotencyKey)
+      if (prior) return send({ success: true, message: 'Existing provider booking returned.', data: prior })
+      if (String(body.integrationType || '').toLowerCase() !== 'shipglobal') return send({ success: false, message: 'Only the configured ShipGlobal provider is available from this backend.' }, 400)
+      if (!shipGlobal.isConfigured()) return send({ success: false, message: 'ShipGlobal production credentials are not configured yet.' }, 503)
+      const order = state.orders.find((item) => item.id === shipment.orderId)
+      if (!order) return send({ success: false, message: 'Source order not found.' }, 404)
+      const providerPayload = mapPunjabShipOrderToShipGlobal({ ...order, pickup: { ...(order.pickup || {}), ...(body.hubPickup || {}) } }, { service: SHIPGLOBAL_SERVICE, currencyCode: SHIPGLOBAL_CURRENCY })
+      const missing = validateShipGlobalOrder(providerPayload)
+      if (missing.length) return send({ success: false, message: `Missing ShipGlobal fields: ${missing.join(', ')}`, missingFields: missing }, 400)
+      shipment.operationStatus = 'provider_booking'; shipment.updatedAt = new Date().toISOString(); save()
+      try {
+        const providerResult = await shipGlobal.addOrder(providerPayload)
+        const actualAwb = extractShipGlobalAwb(providerResult.data, providerResult.headers)
+        const leg = { id: `leg-${randomUUID()}`, shipmentId: shipment.id, idempotencyKey, provider: 'shipglobal', providerCourierName: body.courierPartner || 'ShipGlobal', actualAwb: actualAwb || '', providerReference: providerResult.data?.reference || '', status: actualAwb ? 'booked' : 'accepted_pending_awb', isActive: true, createdAt: new Date().toISOString(), providerResponse: providerResult.data }
+        state.manualShipmentLegs.push(leg); shipment.fulfilmentMode = 'integrated'; shipment.operationStatus = actualAwb ? 'provider_booked' : 'action_required'; shipment.updatedAt = new Date().toISOString(); save()
+        return send({ success: true, message: actualAwb ? 'Provider AWB linked.' : 'Provider accepted booking; AWB reconciliation is required.', data: leg })
+      } catch (error) {
+        shipment.operationStatus = 'action_required'; shipment.updatedAt = new Date().toISOString(); save(); throw error
+      }
+    }
+    const manualCourierMatch = path.match(/^\/api\/admin\/manual-couriers\/([^/]+)$/)
+    if (manualCourierMatch && req.method === 'GET') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const courier = state.manualCouriers.find((item) => item.id === manualCourierMatch[1])
+      if (!courier) return send({ success: false, message: 'Manual courier not found.' }, 404)
+      const page = Math.max(1, Number(requestUrl.searchParams.get('pincodePage') || 1))
+      const limit = Math.min(500, Math.max(1, Number(requestUrl.searchParams.get('pincodeLimit') || 100)))
+      const search = String(requestUrl.searchParams.get('pincodeSearch') || '').trim()
+      const pincodes = courierPincodes(courier).filter((item) => !search || item.includes(search))
+      const start = (page - 1) * limit
+      return send({ success: true, data: { ...manualCourierRow(courier), pincodes: pincodes.slice(start, start + limit).map((pincode) => ({ id: `${courier.id}-${pincode}`, pincode })), pincodePage: page, pincodeLimit: limit, pincodeTotal: pincodes.length, pincodeTotalPages: Math.max(1, Math.ceil(pincodes.length / limit)) } })
+    }
+    if (manualCourierMatch && req.method === 'PATCH') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const courier = state.manualCouriers.find((item) => item.id === manualCourierMatch[1])
+      if (!courier) return send({ success: false, message: 'Manual courier not found.' }, 404)
+      const allowed = ['displayName', 'supportsB2c', 'supportsB2b', 'supportsPrepaid', 'supportsCod', 'minWeightKg', 'maxWeightKg', 'isEnabled']
+      for (const key of allowed) if (body[key] !== undefined) courier[key] = body[key]
+      if (body.code !== undefined) courier.code = String(body.code).trim().toUpperCase()
+      courier.minWeightKg = Number(courier.minWeightKg)
+      courier.maxWeightKg = Number(courier.maxWeightKg)
+      courier.updatedAt = new Date().toISOString()
+      save()
+      return send({ success: true, data: manualCourierRow(courier), message: 'Manual courier updated.' })
+    }
+    const manualPincodesMatch = path.match(/^\/api\/admin\/manual-couriers\/([^/]+)\/pincodes$/)
+    if (manualPincodesMatch && req.method === 'PUT') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const courier = state.manualCouriers.find((item) => item.id === manualPincodesMatch[1])
+      if (!courier) return send({ success: false, message: 'Manual courier not found.' }, 404)
+      courier.pincodeScope = 'selected'; courier.pincodes = normalizePincodes(body.pincodes); courier.excludedPincodes = []; courier.updatedAt = new Date().toISOString(); save()
+      return send({ success: true, data: manualCourierRow(courier), message: 'Pincode coverage replaced.' })
+    }
+    const manualPincodeImportMatch = path.match(/^\/api\/admin\/manual-couriers\/([^/]+)\/pincodes\/import$/)
+    if (manualPincodeImportMatch && req.method === 'POST') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const courier = state.manualCouriers.find((item) => item.id === manualPincodeImportMatch[1])
+      if (!courier) return send({ success: false, message: 'Manual courier not found.' }, 404)
+      const imported = normalizePincodes(String(body.file || '').match(/[1-9]\d{5}/g) || [])
+      courier.pincodeScope = 'selected'
+      courier.excludedPincodes = []
+      courier.pincodes = String(body.mode || 'append') === 'replace' ? imported : normalizePincodes([...(courier.pincodes || []), ...imported])
+      courier.updatedAt = new Date().toISOString(); save()
+      return send({ success: true, data: manualCourierRow(courier), message: `${imported.length} pincodes imported.` })
+    }
+    const manualPincodeDeleteMatch = path.match(/^\/api\/admin\/manual-couriers\/([^/]+)\/pincodes\/([1-9]\d{5})$/)
+    if (manualPincodeDeleteMatch && req.method === 'DELETE') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const courier = state.manualCouriers.find((item) => item.id === manualPincodeDeleteMatch[1])
+      if (!courier) return send({ success: false, message: 'Manual courier not found.' }, 404)
+      if (courier.pincodeScope === 'all_india') courier.excludedPincodes = normalizePincodes([...(courier.excludedPincodes || []), manualPincodeDeleteMatch[2]])
+      else courier.pincodes = normalizePincodes(courier.pincodes).filter((item) => item !== manualPincodeDeleteMatch[2])
+      save()
+      return send({ success: true, message: 'Pincode removed.' })
+    }
+
+    if (path === '/api/admin/zones' && req.method === 'GET') {
+      const businessType = normalizeBusinessType(requestUrl.searchParams.get('business_type') || '')
+      const zones = requestUrl.searchParams.get('business_type') ? state.zones.filter((item) => normalizeBusinessType(item.business_type) === businessType) : state.zones
+      return send(zones)
+    }
+    if (path === '/api/admin/zones' && req.method === 'POST') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      if (!body.name || !body.code) return send({ success: false, message: 'Zone name and code are required.' }, 400)
+      const zone = { ...body, id: body.id || `zone-${randomUUID()}`, business_type: normalizeBusinessType(body.business_type || body.businessType), is_active: body.is_active !== false }
+      state.zones.push(zone); save(); return send(zone, 201)
+    }
+    const zoneMatch = path.match(/^\/api\/admin\/zones\/([^/]+)$/)
+    if (zoneMatch && req.method === 'GET') {
+      const zone = state.zones.find((item) => item.id === zoneMatch[1]); return zone ? send(zone) : send({ message: 'Zone not found.' }, 404)
+    }
+    if (zoneMatch && req.method === 'PUT') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const zone = state.zones.find((item) => item.id === zoneMatch[1]); if (!zone) return send({ message: 'Zone not found.' }, 404)
+      Object.assign(zone, body, { id: zone.id }); save(); return send(zone)
+    }
+    if (zoneMatch && req.method === 'DELETE') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const before = state.zones.length; state.zones = state.zones.filter((item) => item.id !== zoneMatch[1]); if (before === state.zones.length) return send({ message: 'Zone not found.' }, 404)
+      save(); return send({ success: true })
+    }
+
+    if ((path === '/api/admin/couriers/shipping-rates' || path === '/api/couriers/shipping-rates') && req.method === 'GET') {
+      const businessType = normalizeBusinessType(requestUrl.searchParams.get('businessType') || 'b2c')
+      const planId = String(requestUrl.searchParams.get('planId') || '')
+      let rates = state.shippingRates.filter((item) => normalizeBusinessType(item.businessType) === businessType)
+      if (planId) rates = rates.filter((item) => String(item.plan_id) === planId)
+      return send({ success: true, data: rates })
+    }
+    const shippingRateMatch = path.match(/^\/api\/admin\/couriers\/shipping-rate\/([^/]+)\/([^/]+)$/)
+    if (shippingRateMatch && req.method === 'PUT') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const courierId = Number(body.courier_id || shippingRateMatch[1])
+      const planId = decodeURIComponent(shippingRateMatch[2])
+      const businessType = normalizeBusinessType(body.businessType)
+      let rate = state.shippingRates.find((item) => Number(item.courier_id) === courierId && String(item.plan_id) === planId && normalizeBusinessType(item.businessType) === businessType)
+      if (!rate) { rate = { id: `rate-${randomUUID()}`, courier_id: courierId, plan_id: planId, businessType }; state.shippingRates.push(rate) }
+      Object.assign(rate, body, { courier_id: courierId, plan_id: planId, businessType, updated_at: new Date().toISOString() })
+      save(); return send({ success: true, data: rate, message: 'Shipping rate saved.' })
+    }
+    if (path === '/api/couriers/full-list' || path === '/api/admin/couriers/list' || path === '/api/couriers/list') {
+      const businessType = normalizeBusinessType(requestUrl.searchParams.get('businessType') || '')
+      const couriers = state.manualCouriers
+        .filter((item) => !requestUrl.searchParams.get('businessType') || (businessType === 'b2b' ? item.supportsB2b : item.supportsB2c))
+        .map((item) => ({ id: item.courierId, courierId: item.courierId, name: item.displayName, displayName: item.displayName, serviceProvider: 'manual', service_provider: 'manual', isEnabled: item.isEnabled, businessType: [item.supportsB2c && 'b2c', item.supportsB2b && 'b2b'].filter(Boolean) }))
+      return send({ success: true, data: couriers })
+    }
+
     if (path === '/api/payments/wallet/balance' && req.method === 'GET') {
       const seller = currentSeller(req)
       if (!seller) return send({ success: false, message: 'Authentication required.' }, 401)
@@ -989,8 +1475,9 @@ http.createServer(async (req, res) => {
     }
     if (path === '/api/dashboard/tour') return send({ success: true, data: { version: 1, status: 'dismissed', completedPages: [] } })
     if (path === '/api/dashboard/invoice-status') return send({ success: true, status: { pending: { count: 0, totalAmount: 0 }, paid: { count: 0, totalAmount: 0 }, overdue: { count: 0, totalAmount: 0 } } })
-    if (path === '/api/couriers/available-to-user' && req.method === 'POST') {
+    if (['/api/couriers/available-to-user', '/api/admin/couriers/available', '/api/couriers/b2b-rate-quotes'].includes(path) && req.method === 'POST') {
       const configured = shipGlobal.isConfigured()
+      const manualQuotes = availableManualQuotes({ ...body, shipment_type: path.includes('b2b-rate-quotes') ? 'b2b' : body.shipment_type })
       const courier = {
         id: 99001,
         courier_id: 99001,
@@ -1013,7 +1500,8 @@ http.createServer(async (req, res) => {
           booking_blocked_reason: configured ? null : 'ShipGlobal production credentials must be configured by the administrator.',
         },
       }
-      return send({ success: true, data: [courier] })
+      const includeShipGlobal = normalizeBusinessType(body.shipment_type) === 'b2c' && path !== '/api/couriers/b2b-rate-quotes'
+      return send({ success: true, data: [...manualQuotes, ...(includeShipGlobal ? [courier] : [])] })
     }
     if (path === '/api/orders/check-order-number' && req.method === 'GET') {
       const orderNumber = String(requestUrl.searchParams.get('orderNumber') || '').trim().toLowerCase()
@@ -1025,6 +1513,10 @@ http.createServer(async (req, res) => {
       if (!seller) return send({ success: false, message: 'Authentication required.' }, 401)
       const readiness = merchantReadiness(seller)
       if (!readiness.isReady) return send({ success: false, message: 'Complete account approval, KYC, plan and pickup setup before booking a shipment.', readiness }, 403)
+      if (isManualCourierOrder(body)) {
+        const { order, shipment } = createManualShipmentOrder(seller, body, 'b2c')
+        return send({ success: true, message: 'Manual courier shipment booked.', shipment: orderForPanels(order), manualShipment: shipment }, 201)
+      }
       if (!isShipGlobalOrder(body)) return send({ success: false, message: 'Select ShipGlobal as the courier partner for live booking.' }, 400)
       if (!shipGlobal.isConfigured()) return send({ success: false, message: 'ShipGlobal production credentials are not configured yet.' }, 503)
       if (state.orders.some((order) => String(order.order_number) === String(body.order_number))) return send({ success: false, message: 'Order number already exists.' }, 409)
@@ -1062,6 +1554,15 @@ http.createServer(async (req, res) => {
       state.orders.unshift(order)
       save()
       return send({ success: true, message: awb ? 'ShipGlobal shipment created.' : 'ShipGlobal accepted the order; AWB is pending.', shipment: orderForPanels(order), providerResponse: providerResult.data }, 201)
+    }
+    if (path === '/api/orders/b2b/create' && req.method === 'POST') {
+      const seller = currentSeller(req)
+      if (!seller) return send({ success: false, message: 'Authentication required.' }, 401)
+      const readiness = merchantReadiness(seller)
+      if (!readiness.isReady) return send({ success: false, message: 'Complete account approval, KYC, plan and pickup setup before booking a shipment.', readiness }, 403)
+      if (!isManualCourierOrder(body)) return send({ success: false, message: 'Select PunjabShip Manual for B2B booking.' }, 400)
+      const { order, shipment } = createManualShipmentOrder(seller, body, 'b2b')
+      return send({ success: true, message: 'Manual B2B shipment booked.', shipment: orderForPanels(order), manualShipment: shipment }, 201)
     }
     if (['/api/orders/b2c/list', '/api/orders/b2b/list', '/api/orders/all'].includes(path) && req.method === 'GET') {
       const seller = currentSeller(req)
