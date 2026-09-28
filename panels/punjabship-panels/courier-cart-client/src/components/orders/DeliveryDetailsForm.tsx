@@ -1,17 +1,14 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { CircularProgress, Grid } from '@mui/material'
+import { useQuery } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { Controller, type FieldErrors, useFormContext } from 'react-hook-form'
-import { normalizePincode, type ServiceabilityLocation } from '../../api/locations'
-import { useLocations } from '../../hooks/useLocations'
+import { lookupPincodeLocation, normalizePincode } from '../../api/locations'
 import CustomInput from '../UI/inputs/CustomInput'
 import type { B2BFormData } from './b2b/B2BOrderForm'
 import type { B2CFormData } from './b2c/B2COrderForm'
 
 type FormType = 'b2b' | 'b2c'
-
-const getExactLocation = (rows: ServiceabilityLocation[] = [], pincode: string) =>
-  rows.find((row) => String(row?.pincode || '') === pincode) ?? rows[0]
 
 const DeliveryDetailsForm = ({ type = 'b2c' }: { type?: FormType }) => {
   const {
@@ -30,14 +27,16 @@ const DeliveryDetailsForm = ({ type = 'b2c' }: { type?: FormType }) => {
   const normalizedPincode = isIndia ? normalizePincode(pincode) : pincode.trim().toUpperCase()
 
   const {
-    data: locationData,
+    data: location,
     isFetching: pinFetching,
     isError,
-  } = useLocations(
-    { pincode: normalizedPincode },
-    Boolean(isIndia && /^\d{6}$/.test(normalizedPincode)),
-    ['locationLookup', normalizedPincode],
-  )
+  } = useQuery({
+    queryKey: ['pincodeLocation', normalizedPincode],
+    queryFn: () => lookupPincodeLocation(normalizedPincode),
+    enabled: Boolean(isIndia && /^\d{6}$/.test(normalizedPincode)),
+    staleTime: 30 * 60 * 1000,
+    retry: 1,
+  })
 
   useEffect(() => {
     if (!isIndia) {
@@ -57,11 +56,7 @@ const DeliveryDetailsForm = ({ type = 'b2c' }: { type?: FormType }) => {
       return
     }
 
-    if (locationData) {
-      const rows: ServiceabilityLocation[] = Array.isArray(locationData?.data)
-        ? locationData.data
-        : []
-      const location = getExactLocation(rows, normalizedPincode)
+    if (location !== undefined) {
       const city = location?.city
       const state = location?.state
 
@@ -75,7 +70,7 @@ const DeliveryDetailsForm = ({ type = 'b2c' }: { type?: FormType }) => {
         setValue('state', state, { shouldValidate: true })
       }
     }
-  }, [locationData, isError, isIndia, normalizedPincode, setError, clearErrors, setValue, getValues])
+  }, [location, isError, isIndia, normalizedPincode, setError, clearErrors, setValue, getValues])
 
   const fields = [
     { name: 'buyerName', label: 'Name' },

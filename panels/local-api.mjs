@@ -741,11 +741,18 @@ const manualCourierRow = (courier) => ({
 })
 
 let pincodeOfficeMap = null
+const pincodeOfficeRank = (office) => ({ HO: 3, SO: 2, PO: 2, BO: 1 }[String(office?.officeType || '').toUpperCase()] || 0)
 const officeForPincode = (pincode) => {
   if (!pincodeOfficeMap) {
     pincodeOfficeMap = new Map()
     for (const office of loadIndiaPostData()) {
-      if (!pincodeOfficeMap.has(String(office.pincode))) pincodeOfficeMap.set(String(office.pincode), office)
+      const key = String(office.pincode)
+      const current = pincodeOfficeMap.get(key)
+      if (
+        !current ||
+        pincodeOfficeRank(office) > pincodeOfficeRank(current) ||
+        (pincodeOfficeRank(office) === pincodeOfficeRank(current) && String(office.area || '').length < String(current.area || '').length)
+      ) pincodeOfficeMap.set(key, office)
     }
   }
   return pincodeOfficeMap.get(String(pincode || '').trim()) || null
@@ -1747,6 +1754,23 @@ http.createServer(async (req, res) => {
       const pincode = String(requestUrl.searchParams.get('pincode') || '').trim().toLowerCase()
       const city = String(requestUrl.searchParams.get('city') || '').trim().toLowerCase()
       const stateName = String(requestUrl.searchParams.get('state') || '').trim().toLowerCase()
+      if (/^[1-9]\d{5}$/.test(pincode) && !city && !stateName) {
+        const custom = state.customServiceabilityLocations.find((item) => item.pincode === pincode)
+        const office = officeForPincode(pincode)
+        const location = custom || (office ? {
+          id: `india-pincode-${pincode}`,
+          pincode,
+          city: office.area,
+          district: office.district,
+          state: office.state,
+          country: 'India',
+          tags: office.delivery ? ['delivery'] : [],
+          officeType: office.officeType,
+          source: 'India Post',
+        } : null)
+        const locations = location ? [location] : []
+        return send({ success: true, data: locations, total: locations.length, totalCount: locations.length, page: 1, limit, totalPages: 1 })
+      }
       let locations = serviceabilityLocations()
       if (pincode) locations = locations.filter((item) => item.pincode.toLowerCase().includes(pincode))
       if (city) locations = locations.filter((item) => `${item.city} ${item.district || ''}`.toLowerCase().includes(city))
