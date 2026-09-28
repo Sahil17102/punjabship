@@ -7,8 +7,8 @@ export const useWalletBalance = (enabled = true) => {
     queryKey: ['walletBalance'],
     queryFn: fetchWalletBalance,
     enabled,
-    refetchOnWindowFocus: false,
-    staleTime: 1000 * 60 * 5, // cache for 5 minutes
+    refetchOnWindowFocus: true,
+    staleTime: 1000 * 30,
   })
 
   return query

@@ -22,10 +22,21 @@ export async function confirmRecharge({
 }
 
 export const fetchWalletBalance = async (): Promise<{
+  success?: boolean
   data: { balance: number }
+  balance?: number
 }> => {
   const response = await axiosInstance.get('/payments/wallet/balance')
-  return response.data
+  const payload = response.data || {}
+  const balance = Number(payload?.data?.balance ?? payload?.balance ?? 0)
+  return {
+    ...payload,
+    data: {
+      ...(payload?.data && !Array.isArray(payload.data) ? payload.data : {}),
+      balance: Number.isFinite(balance) ? balance : 0,
+    },
+    balance: Number.isFinite(balance) ? balance : 0,
+  }
 }
 
 export interface WalletTransaction {
@@ -69,6 +80,11 @@ export interface WalletTransactionsResponse {
     currency: string
   }
   transactions: WalletTransaction[]
+  totalCount?: number
+  total?: number
+  page?: number
+  limit?: number
+  totalPages?: number
 }
 
 export type WalletTransactionCategory =
@@ -93,9 +109,18 @@ interface WalletTransactionsParams {
 export const fetchWalletTransactions = async (
   params: WalletTransactionsParams = {},
 ): Promise<WalletTransactionsResponse> => {
-  const { data } = await axiosInstance.get<WalletTransactionsResponse>(
+  const { data } = await axiosInstance.get(
     '/payments/wallet/transactions',
     { params }, // send page, limit, and optional filters to backend
   )
-  return data
+  const balance = Number(data?.wallet?.balance ?? data?.data?.balance ?? data?.balance ?? 0)
+  return {
+    ...data,
+    wallet: data?.wallet || {
+      id: '',
+      balance: String(Number.isFinite(balance) ? balance : 0),
+      currency: 'INR',
+    },
+    transactions: Array.isArray(data?.transactions) ? data.transactions : [],
+  }
 }

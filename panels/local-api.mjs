@@ -209,6 +209,29 @@ state.serviceabilityOverrides ??= {}
 state.deletedServiceabilityLocationIds ??= []
 state.plans ??= defaultState.plans
 state.preferences ??= defaultState.preferences
+state.walletTransactions ??= []
+
+for (const seller of state.users) {
+  if (
+    Number(seller.walletBalance ?? 5000) !== 0 &&
+    !state.walletTransactions.some((transaction) => transaction.user_id === seller.id)
+  ) {
+    state.walletTransactions.push({
+      id: `wallet-opening-${seller.id}`,
+      wallet_id: `wallet-${seller.id}`,
+      user_id: seller.id,
+      amount: Math.abs(Number(seller.walletBalance ?? 5000)),
+      type: Number(seller.walletBalance ?? 5000) >= 0 ? 'credit' : 'debit',
+      reason: 'opening_balance',
+      category: 'wallet_recharge',
+      ref: `OPENING-${seller.id}`,
+      meta: { source: 'PunjabShip', notes: 'Opening wallet balance' },
+      currency: 'INR',
+      created_at: seller.createdAt || new Date().toISOString(),
+      balance_after: Number(seller.walletBalance ?? 5000),
+    })
+  }
+}
 
 const save = () => writeFileSync(dataFile, JSON.stringify(state, null, 2))
 const serviceabilityLocations = () => {
@@ -234,16 +257,94 @@ const currentSeller = (req) => {
   const session = decodeToken(req)
   return state.users.find((item) => item.id === session?.id) || null
 }
+const isAdminRequest = (req) => decodeToken(req)?.role === 'admin'
 const authPayload = (seller) => {
   const accessToken = token('user', seller.id)
   return { success: true, message: 'Login successful', token: accessToken, accessToken, refreshToken: accessToken, user: seller }
+}
+
+const walletBalanceOf = (seller) => Number(seller?.walletBalance ?? 5000)
+const walletIdOf = (seller) => `wallet-${seller.id}`
+const walletCategoryOf = (transaction) => transaction.category || (
+  String(transaction.reason || '').includes('recharge') || String(transaction.reason || '').includes('opening')
+    ? 'wallet_recharge'
+    : 'adjustments'
+)
+const walletTransactionsFor = (userId) => state.walletTransactions
+  .filter((transaction) => transaction.user_id === userId)
+  .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
+
+const filterWalletTransactions = (transactions, requestUrl) => {
+  const type = String(requestUrl.searchParams.get('type') || '').toLowerCase()
+  const category = String(requestUrl.searchParams.get('category') || '').toLowerCase()
+  const search = String(requestUrl.searchParams.get('search') || '').trim().toLowerCase()
+  const dateFrom = requestUrl.searchParams.get('dateFrom')
+  const dateTo = requestUrl.searchParams.get('dateTo')
+  const fromTime = dateFrom ? new Date(`${dateFrom}T00:00:00`).getTime() : null
+  const toTime = dateTo ? new Date(`${dateTo}T23:59:59.999`).getTime() : null
+
+  return transactions.filter((transaction) => {
+    const timestamp = new Date(transaction.created_at || 0).getTime()
+    return (!type || transaction.type === type) &&
+      (!category || walletCategoryOf(transaction) === category) &&
+      (!search || JSON.stringify(transaction).toLowerCase().includes(search)) &&
+      (!fromTime || timestamp >= fromTime) &&
+      (!toTime || timestamp <= toTime)
+  })
+}
+
+const paginate = (items, requestUrl, defaultLimit = 20) => {
+  const page = Math.max(1, Number(requestUrl.searchParams.get('page') || 1))
+  const limit = Math.min(5000, Math.max(1, Number(requestUrl.searchParams.get('limit') || defaultLimit)))
+  const start = (page - 1) * limit
+  return {
+    data: items.slice(start, start + limit),
+    totalCount: items.length,
+    total: items.length,
+    page,
+    limit,
+    totalPages: Math.max(1, Math.ceil(items.length / limit)),
+  }
+}
+
+const adminWalletRow = (seller) => ({
+  id: walletIdOf(seller),
+  walletId: walletIdOf(seller),
+  userId: seller.id,
+  user: seller.displayName || seller.companyInfo?.contactPerson || seller.email,
+  userEmail: seller.email,
+  email: seller.email,
+  companyInfo: seller.companyInfo || {},
+  balance: walletBalanceOf(seller),
+  currency: 'INR',
+  createdAt: seller.createdAt,
+  updatedAt: seller.updatedAt || seller.createdAt,
+})
+
+const walletMisRow = (transaction) => {
+  const seller = state.users.find((item) => item.id === transaction.user_id)
+  const meta = transaction.meta || {}
+  return {
+    id: transaction.id,
+    customerName: seller?.companyInfo?.businessName || seller?.displayName || seller?.email || 'Unknown customer',
+    customerEmail: seller?.email || '',
+    customerId: transaction.user_id,
+    transactionDate: transaction.created_at,
+    walletTransactionAmount: Number(transaction.amount || 0),
+    transactionAgainst: walletCategoryOf(transaction).split('_').map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(' '),
+    transactionType: String(transaction.type || '').toUpperCase(),
+    awb: transaction.awb_number || meta.awb_number || '',
+    courierPartnerName: meta.courier_partner || meta.courier || '',
+    weight: meta.weight || '',
+    reference: transaction.ref || '',
+  }
 }
 
 const stats = (seller) => {
   const sellerOrders = seller?.id === demoUser.id ? state.orders : []
   return {
     todayOperations: { orders: sellerOrders.length, pending: 3, inTransit: 3, delivered: 3 },
-    financial: { walletBalance: 5000, todayRevenue: 1250, totalRevenue: 21600, totalShippingCharges: 846, totalFreightCharges: 600, profit: 246, codAmount: 10800, codRemittanceDue: 5400, codRemittanceCredited: 5400 },
+    financial: { walletBalance: walletBalanceOf(seller), todayRevenue: 1250, totalRevenue: 21600, totalShippingCharges: 846, totalFreightCharges: 600, profit: 246, codAmount: 10800, codRemittanceDue: 5400, codRemittanceCredited: 5400 },
     operational: { deliverySuccessRate: 94, ndrRate: 2, rtoRate: 4, avgDeliveryTime: 72, totalOrders: sellerOrders.length, deliveredOrders: 3, ndrCount: 0, rtoCount: 0 },
     actions: { ndrCount: 0, rtoCount: 0, weightDiscrepancyCount: 0, openTickets: 0, inProgressTickets: 0, pendingInvoices: 0, pendingInvoiceAmount: 0, overdueInvoices: 0, overdueInvoiceAmount: 0 },
     couriers: { performance: {}, distribution: [{ courier: 'Delhivery', count: 4 }, { courier: 'DTDC', count: 4 }, { courier: 'Blue Dart', count: 4 }] },
@@ -731,7 +832,156 @@ http.createServer(async (req, res) => {
     }
     if (path === '/api/admin/crm/session') return send({ success: true, data: { actorType: 'admin', scopeType: 'all', permissions: {} }, actorType: 'admin', scopeType: 'all', permissions: {} })
     if (path === '/api/admin/dashboard/stats' && req.method === 'GET') return send({ success: true, data: adminDashboardStats(requestUrl) })
-    if (path === '/api/wallet/balance') return send({ success: true, data: { balance: 5000 }, balance: 5000 })
+
+    if (path === '/api/payments/wallet/balance' && req.method === 'GET') {
+      const seller = currentSeller(req)
+      if (!seller) return send({ success: false, message: 'Authentication required.' }, 401)
+      const balance = walletBalanceOf(seller)
+      return send({ success: true, data: { balance, currency: 'INR', walletId: walletIdOf(seller) }, balance })
+    }
+    if (path === '/api/payments/wallet/transactions' && req.method === 'GET') {
+      const seller = currentSeller(req)
+      if (!seller) return send({ success: false, message: 'Authentication required.' }, 401)
+      const filtered = filterWalletTransactions(walletTransactionsFor(seller.id), requestUrl)
+      const pageData = paginate(filtered, requestUrl, 50)
+      return send({
+        success: true,
+        wallet: { id: walletIdOf(seller), balance: String(walletBalanceOf(seller)), currency: 'INR' },
+        transactions: pageData.data,
+        totalCount: pageData.totalCount,
+        total: pageData.total,
+        page: pageData.page,
+        limit: pageData.limit,
+        totalPages: pageData.totalPages,
+      })
+    }
+    if (path === '/api/wallet/balance' && req.method === 'GET') {
+      const seller = currentSeller(req)
+      const balance = walletBalanceOf(seller)
+      return send({ success: true, data: { balance }, balance })
+    }
+
+    if (path === '/api/admin/wallets' && req.method === 'GET') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const search = String(requestUrl.searchParams.get('search') || '').trim().toLowerCase()
+      const sortBy = String(requestUrl.searchParams.get('sortBy') || 'updatedAt')
+      const sortOrder = String(requestUrl.searchParams.get('sortOrder') || 'desc').toLowerCase() === 'asc' ? 1 : -1
+      let wallets = state.users.map(adminWalletRow)
+      if (search) wallets = wallets.filter((wallet) => JSON.stringify(wallet).toLowerCase().includes(search))
+      wallets.sort((a, b) => {
+        const left = sortBy === 'companyName' ? a.companyInfo?.businessName : a[sortBy]
+        const right = sortBy === 'companyName' ? b.companyInfo?.businessName : b[sortBy]
+        if (sortBy === 'balance') return (Number(left || 0) - Number(right || 0)) * sortOrder
+        return String(left || '').localeCompare(String(right || '')) * sortOrder
+      })
+      return send({ success: true, ...paginate(wallets, requestUrl, 20) })
+    }
+
+    if (path === '/api/admin/wallets/mis-report' && req.method === 'GET') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      let rows = state.walletTransactions.map(walletMisRow)
+      const search = String(requestUrl.searchParams.get('search') || '').trim().toLowerCase()
+      const type = String(requestUrl.searchParams.get('type') || '').trim().toUpperCase()
+      const transactionAgainst = String(requestUrl.searchParams.get('transactionAgainst') || '').trim().toLowerCase()
+      const customerId = String(requestUrl.searchParams.get('customerId') || '').trim()
+      const awb = String(requestUrl.searchParams.get('awb') || '').trim().toLowerCase()
+      const courier = String(requestUrl.searchParams.get('courier') || '').trim().toLowerCase()
+      const dateFrom = requestUrl.searchParams.get('dateFrom')
+      const dateTo = requestUrl.searchParams.get('dateTo')
+      const fromTime = dateFrom ? new Date(`${dateFrom}T00:00:00`).getTime() : null
+      const toTime = dateTo ? new Date(`${dateTo}T23:59:59.999`).getTime() : null
+      rows = rows.filter((row) => {
+        const timestamp = new Date(row.transactionDate || 0).getTime()
+        return (!search || JSON.stringify(row).toLowerCase().includes(search)) &&
+          (!type || row.transactionType === type) &&
+          (!transactionAgainst || row.transactionAgainst.toLowerCase() === transactionAgainst) &&
+          (!customerId || row.customerId === customerId) &&
+          (!awb || row.awb.toLowerCase().includes(awb)) &&
+          (!courier || row.courierPartnerName.toLowerCase().includes(courier)) &&
+          (!fromTime || timestamp >= fromTime) &&
+          (!toTime || timestamp <= toTime)
+      })
+      rows.sort((a, b) => String(b.transactionDate || '').localeCompare(String(a.transactionDate || '')))
+      return send({ success: true, ...paginate(rows, requestUrl, 50) })
+    }
+
+    if (path === '/api/admin/wallets/mis-report/export' && req.method === 'GET') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const rows = state.walletTransactions.map(walletMisRow)
+      const columns = ['Customer Name', 'Customer Email', 'Customer ID', 'Transaction Date', 'Amount', 'Transaction Against', 'Type', 'AWB', 'Courier', 'Weight', 'Reference']
+      const escapeCsv = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`
+      const csv = [columns, ...rows.map((row) => [row.customerName, row.customerEmail, row.customerId, row.transactionDate, row.walletTransactionAmount, row.transactionAgainst, row.transactionType, row.awb, row.courierPartnerName, row.weight, row.reference])]
+        .map((row) => row.map(escapeCsv).join(','))
+        .join('\n')
+      res.writeHead(200, {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename="wallet_mis_${new Date().toISOString().slice(0, 10)}.csv"`,
+      })
+      res.end(csv)
+      return
+    }
+
+    const adminWalletTransactionsMatch = path.match(/^\/api\/admin\/wallets\/([^/]+)\/transactions$/)
+    if (adminWalletTransactionsMatch && req.method === 'GET') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const seller = state.users.find((item) => item.id === adminWalletTransactionsMatch[1])
+      if (!seller) return send({ success: false, message: 'Seller wallet not found.' }, 404)
+      const filtered = filterWalletTransactions(walletTransactionsFor(seller.id), requestUrl)
+      const pageData = paginate(filtered, requestUrl, 50)
+      return send({
+        success: true,
+        wallet: { id: walletIdOf(seller), balance: String(walletBalanceOf(seller)), currency: 'INR' },
+        transactions: pageData.data,
+        totalCount: pageData.totalCount,
+        page: pageData.page,
+        limit: pageData.limit,
+        totalPages: pageData.totalPages,
+      })
+    }
+
+    const adminWalletAdjustMatch = path.match(/^\/api\/admin\/wallets\/([^/]+)\/adjust$/)
+    if (adminWalletAdjustMatch && req.method === 'POST') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const seller = state.users.find((item) => item.id === adminWalletAdjustMatch[1])
+      if (!seller) return send({ success: false, message: 'Seller wallet not found.' }, 404)
+      const type = String(body.type || '').toLowerCase()
+      const amount = Number(body.amount)
+      if (!['credit', 'debit'].includes(type) || !Number.isFinite(amount) || amount <= 0 || !String(body.reason || '').trim()) {
+        return send({ success: false, message: 'Type, positive amount, and reason are required.' }, 400)
+      }
+      const currentBalance = walletBalanceOf(seller)
+      if (type === 'debit' && amount > currentBalance) return send({ success: false, message: 'Insufficient wallet balance.' }, 400)
+      const now = new Date().toISOString()
+      seller.walletBalance = Number((currentBalance + (type === 'credit' ? amount : -amount)).toFixed(2))
+      seller.updatedAt = now
+      const transaction = {
+        id: `wallet-transaction-${randomUUID()}`,
+        wallet_id: walletIdOf(seller),
+        user_id: seller.id,
+        amount,
+        type,
+        reason: String(body.reason).trim(),
+        category: 'adjustments',
+        ref: `ADMIN-${Date.now()}`,
+        meta: { notes: String(body.notes || '').trim(), source: 'admin_adjustment' },
+        currency: 'INR',
+        created_at: now,
+        balance_after: seller.walletBalance,
+      }
+      state.walletTransactions.unshift(transaction)
+      save()
+      return send({ success: true, message: 'Wallet balance adjusted.', data: adminWalletRow(seller), transaction })
+    }
+
+    const adminWalletMatch = path.match(/^\/api\/admin\/wallets\/([^/]+)$/)
+    if (adminWalletMatch && req.method === 'GET') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const seller = state.users.find((item) => item.id === adminWalletMatch[1])
+      return seller
+        ? send({ success: true, data: adminWalletRow(seller), wallet: adminWalletRow(seller) })
+        : send({ success: false, message: 'Seller wallet not found.' }, 404)
+    }
+
     if (path === '/api/dashboard/stats') return send({ success: true, data: stats(currentSeller(req)) })
     if (path === '/api/dashboard/preferences') {
       if (req.method === 'POST') { state.preferences = { ...state.preferences, ...body }; save() }
