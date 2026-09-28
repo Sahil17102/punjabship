@@ -33,10 +33,7 @@ const B2BPricingContent = () => {
   const [selectedPlanId, setSelectedPlanId] = useState('')
 
   const [selectedCourierKey, setSelectedCourierKey] = useState('')
-  const { data: delhiveryB2BCouriers = [] } = useCouriers({
-    businessType: 'b2b',
-    serviceProvider: 'delhivery',
-  })
+  const { data: b2bCouriers = [] } = useCouriers({ businessType: 'b2b' })
 
   // Default to the Basic B2B plan because Delhivery workbook data is seeded there.
   useEffect(() => {
@@ -48,43 +45,45 @@ const B2BPricingContent = () => {
   }, [plans, selectedPlanId])
 
   useEffect(() => {
-    if (!delhiveryB2BCouriers.length) {
+    if (!b2bCouriers.length) {
       if (selectedCourierKey) {
         setSelectedCourierKey('')
       }
       return
     }
 
-    const hasSelectedCourier = delhiveryB2BCouriers.some((courier) => {
+    const hasSelectedCourier = b2bCouriers.some((courier) => {
       const provider = courier.serviceProvider || courier.service_provider || ''
       return `${courier.id}|${provider}` === selectedCourierKey
     })
 
     if (!hasSelectedCourier) {
       const preferredCourier =
-        delhiveryB2BCouriers.find((courier) =>
+        b2bCouriers.find((courier) =>
+          String(courier.serviceProvider || courier.service_provider || '').toLowerCase() === 'manual',
+        ) || b2bCouriers.find((courier) =>
           String(courier.name || '')
             .trim()
             .toLowerCase()
             .includes('surface'),
-        ) || delhiveryB2BCouriers[0]
+        ) || b2bCouriers[0]
       const provider = preferredCourier.serviceProvider || preferredCourier.service_provider || ''
       setSelectedCourierKey(`${preferredCourier.id}|${provider}`)
     }
-  }, [delhiveryB2BCouriers, selectedCourierKey])
+  }, [b2bCouriers, selectedCourierKey])
 
-  const selectedCourier = delhiveryB2BCouriers.find((courier) => {
+  const selectedCourier = b2bCouriers.find((courier) => {
     const provider = courier.serviceProvider || courier.service_provider || ''
     return `${courier.id}|${provider}` === selectedCourierKey
   })
   const scopedCourierId = selectedCourier ? String(selectedCourier.id) : ''
   const scopedServiceProvider =
-    selectedCourier?.serviceProvider || selectedCourier?.service_provider || 'delhivery'
+    selectedCourier?.serviceProvider || selectedCourier?.service_provider || 'manual'
 
   return (
     <Box>
       {/* Plan Selector - Simplified */}
-      {(plans?.length > 0 || delhiveryB2BCouriers.length > 1) && (
+      {(plans?.length > 0 || b2bCouriers.length > 1) && (
         <Box mb={4} px={6} pt={4}>
           <HStack spacing={3} align="center">
             {plans?.length > 0 && (
@@ -105,17 +104,17 @@ const B2BPricingContent = () => {
                 </Select>
               </>
             )}
-            {delhiveryB2BCouriers.length > 1 && (
+            {b2bCouriers.length > 1 && (
               <>
                 <Text fontSize="sm" fontWeight="medium" color="gray.700" minW="140px">
-                  Delhivery B2B Courier:
+                  B2B Courier:
                 </Text>
                 <Select
                   value={selectedCourierKey}
                   onChange={(e) => setSelectedCourierKey(e.target.value)}
                   maxW="320px"
                 >
-                  {delhiveryB2BCouriers.map((courier) => {
+                  {b2bCouriers.map((courier) => {
                     const provider = courier.serviceProvider || courier.service_provider || ''
                     const courierKey = `${courier.id}|${provider}`
                     return (
@@ -132,11 +131,11 @@ const B2BPricingContent = () => {
         </Box>
       )}
 
-      {!delhiveryB2BCouriers.length && (
+      {!b2bCouriers.length && (
         <Box px={6} pb={4}>
           <Text fontSize="sm" color="red.500">
-            No Delhivery B2B courier is configured yet. Add or enable a Delhivery courier with B2B
-            business type to manage this rate card.
+            No B2B courier is configured yet. Add or enable a courier with B2B business type to
+            manage this rate card.
           </Text>
         </Box>
       )}

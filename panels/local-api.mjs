@@ -34,12 +34,12 @@ const DEFAULT_B2C_ZONES = [
   { id: 'b2c-special', code: 'E', name: 'Special', description: 'North East, Jammu & Kashmir and island destinations', business_type: 'b2c', is_active: true },
 ]
 const DEFAULT_B2B_ZONES = [
-  { id: 'b2b-north', code: 'N', name: 'North', description: 'North India', business_type: 'b2b', is_active: true },
-  { id: 'b2b-west', code: 'W', name: 'West', description: 'West India', business_type: 'b2b', is_active: true },
-  { id: 'b2b-south', code: 'S', name: 'South', description: 'South India', business_type: 'b2b', is_active: true },
-  { id: 'b2b-east', code: 'E', name: 'East', description: 'East India', business_type: 'b2b', is_active: true },
-  { id: 'b2b-central', code: 'C', name: 'Central', description: 'Central India', business_type: 'b2b', is_active: true },
-  { id: 'b2b-northeast', code: 'NE', name: 'North East', description: 'North East and special destinations', business_type: 'b2b', is_active: true },
+  { id: 'b2b-north', code: 'N', name: 'North', description: 'North India', states: ['Punjab', 'Haryana', 'Himachal Pradesh', 'Delhi', 'Uttar Pradesh', 'Uttarakhand', 'Chandigarh', 'Rajasthan'], business_type: 'b2b', is_active: true },
+  { id: 'b2b-west', code: 'W', name: 'West', description: 'West India', states: ['Gujarat', 'Maharashtra', 'Goa', 'Dadra & Nagar Haveli', 'Daman & Diu'], business_type: 'b2b', is_active: true },
+  { id: 'b2b-south', code: 'S', name: 'South', description: 'South India', states: ['Karnataka', 'Kerala', 'Tamil Nadu', 'Telangana', 'Andhra Pradesh', 'Puducherry'], business_type: 'b2b', is_active: true },
+  { id: 'b2b-east', code: 'E', name: 'East', description: 'East India', states: ['West Bengal', 'Odisha', 'Bihar', 'Jharkhand'], business_type: 'b2b', is_active: true },
+  { id: 'b2b-central', code: 'C', name: 'Central', description: 'Central India', states: ['Madhya Pradesh', 'Chhattisgarh'], business_type: 'b2b', is_active: true },
+  { id: 'b2b-northeast', code: 'NE', name: 'North East', description: 'North East and special destinations', states: ['Assam', 'Arunachal Pradesh', 'Manipur', 'Meghalaya', 'Mizoram', 'Nagaland', 'Sikkim', 'Tripura', 'Jammu & Kashmir', 'Ladakh', 'Andaman & Nicobar Islands'], business_type: 'b2b', is_active: true },
 ]
 
 const defaultManualCourier = () => ({
@@ -84,6 +84,18 @@ const defaultB2bRate = () => ({
     'North East': { forward_per_kg: 24, rto_per_kg: 22, min_weight: 10 },
   },
 })
+const defaultB2bZoneRates = () => {
+  const perKg = { North: 12, West: 15, South: 18, East: 17, Central: 14, 'North East': 24 }
+  return DEFAULT_B2B_ZONES.flatMap((origin) => DEFAULT_B2B_ZONES.map((destination) => ({
+    id: `b2b-rate-${origin.code.toLowerCase()}-${destination.code.toLowerCase()}`,
+    originZoneId: origin.id, origin_zone_id: origin.id,
+    destinationZoneId: destination.id, destination_zone_id: destination.id,
+    courier_id: DEFAULT_MANUAL_COURIER_ID, service_provider: 'manual', plan_id: 'starter-b2b',
+    ratePerKg: perKg[destination.name], rate_per_kg: perKg[destination.name],
+    min_charge: perKg[destination.name] * 10, min_charge_weight: 10,
+    volumetric_factor: 5000, is_active: true,
+  })))
+}
 
 const toServiceabilityLocation = (office, index) => ({
   id: `india-post-${index + 1}`,
@@ -221,6 +233,7 @@ const defaultState = {
   manualCouriers: [defaultManualCourier()],
   zones: [...DEFAULT_B2C_ZONES, ...DEFAULT_B2B_ZONES],
   shippingRates: [defaultB2cRate(), defaultB2bRate()],
+  b2bZoneRates: defaultB2bZoneRates(),
   manualShipments: [], manualShipmentEvents: [], manualShipmentLegs: [],
 }
 const state = existsSync(dataFile) ? JSON.parse(readFileSync(dataFile, 'utf8')) : defaultState
@@ -277,15 +290,21 @@ state.walletTransactions ??= []
 state.manualCouriers ??= []
 state.zones ??= []
 state.shippingRates ??= []
+state.b2bZoneRates ??= []
 state.manualShipments ??= []
 state.manualShipmentEvents ??= []
 state.manualShipmentLegs ??= []
 if (!state.manualCouriers.some((item) => item.id === 'manual-punjabship')) state.manualCouriers.push(defaultManualCourier())
 for (const zone of [...DEFAULT_B2C_ZONES, ...DEFAULT_B2B_ZONES]) {
-  if (!state.zones.some((item) => item.id === zone.id)) state.zones.push(zone)
+  const existingZone = state.zones.find((item) => item.id === zone.id)
+  if (!existingZone) state.zones.push(zone)
+  else if (zone.states?.length && !existingZone.states?.length) existingZone.states = zone.states
 }
 if (!state.shippingRates.some((item) => item.id === 'rate-punjabship-b2c')) state.shippingRates.push(defaultB2cRate())
 if (!state.shippingRates.some((item) => item.id === 'rate-punjabship-b2b')) state.shippingRates.push(defaultB2bRate())
+for (const rate of defaultB2bZoneRates()) {
+  if (!state.b2bZoneRates.some((item) => item.id === rate.id)) state.b2bZoneRates.push(rate)
+}
 for (const seller of state.users) {
   if (seller.approved && (seller.businessType || []).map((item) => String(item).toLowerCase()).includes('b2b')) {
     seller.currentB2BPlanId ||= 'starter-b2b'
@@ -1030,7 +1049,14 @@ http.createServer(async (req, res) => {
       save()
       return send({ success: true, message: 'Seller account approved.', user: seller })
     }
-    if (path === '/api/plans' && req.method === 'GET') return send({ success: true, data: state.plans })
+    if (path === '/api/plans' && req.method === 'GET') {
+      const businessType = String(requestUrl.searchParams.get('businessType') || '').toLowerCase()
+      const status = String(requestUrl.searchParams.get('status') || '').toLowerCase()
+      let plans = state.plans
+      if (businessType) plans = plans.filter((item) => normalizeBusinessType(item.business_type) === businessType)
+      if (status) plans = plans.filter((item) => status === 'active' ? item.is_active !== false : item.is_active === false)
+      return send({ success: true, data: plans })
+    }
     if (path === '/api/plans/assign-to-user' && req.method === 'POST') {
       const seller = state.users.find((item) => item.id === body.userId)
       const plan = state.plans.find((item) => item.id === body.planId)
@@ -1290,6 +1316,67 @@ http.createServer(async (req, res) => {
     if (zoneMatch && req.method === 'DELETE') {
       if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
       const before = state.zones.length; state.zones = state.zones.filter((item) => item.id !== zoneMatch[1]); if (before === state.zones.length) return send({ message: 'Zone not found.' }, 404)
+      save(); return send({ success: true })
+    }
+
+    if (path === '/api/admin/b2b/states' && req.method === 'GET') {
+      const states = Array.from(new Set(loadIndiaPostData().map((item) => String(item.state || '').trim()).filter(Boolean))).sort()
+      return send({ success: true, data: states })
+    }
+    if (path === '/api/admin/b2b/zones' && req.method === 'GET') {
+      return send({ success: true, data: state.zones.filter((item) => normalizeBusinessType(item.business_type) === 'b2b') })
+    }
+    if (path === '/api/admin/b2b/zones' && req.method === 'POST') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      if (!String(body.name || '').trim() || !String(body.code || '').trim()) return send({ success: false, message: 'Zone name and code are required.' }, 400)
+      const zone = { ...body, id: body.id || `b2b-zone-${randomUUID()}`, code: String(body.code).trim().toUpperCase(), name: String(body.name).trim(), business_type: 'b2b', states: Array.isArray(body.states) ? body.states : [], is_active: body.is_active !== false, created_at: new Date().toISOString() }
+      state.zones.push(zone); save(); return send({ success: true, data: zone }, 201)
+    }
+    const b2bZoneMatch = path.match(/^\/api\/admin\/b2b\/zones\/([^/]+)$/)
+    if (b2bZoneMatch && req.method === 'PUT') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const zone = state.zones.find((item) => item.id === b2bZoneMatch[1] && normalizeBusinessType(item.business_type) === 'b2b')
+      if (!zone) return send({ success: false, message: 'B2B zone not found.' }, 404)
+      Object.assign(zone, body, { id: zone.id, business_type: 'b2b', updated_at: new Date().toISOString() }); save(); return send({ success: true, data: zone })
+    }
+    if (b2bZoneMatch && req.method === 'DELETE') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const before = state.zones.length; state.zones = state.zones.filter((item) => item.id !== b2bZoneMatch[1])
+      if (before === state.zones.length) return send({ success: false, message: 'B2B zone not found.' }, 404)
+      state.b2bZoneRates = state.b2bZoneRates.filter((item) => item.originZoneId !== b2bZoneMatch[1] && item.destinationZoneId !== b2bZoneMatch[1]); save(); return send({ success: true })
+    }
+    const b2bZoneRemapMatch = path.match(/^\/api\/admin\/b2b\/zones\/([^/]+)\/remap$/)
+    if (b2bZoneRemapMatch && req.method === 'POST') return send({ success: true, message: 'Zone state mappings refreshed.' })
+
+    if (path === '/api/admin/b2b/zone-rates' && req.method === 'GET') {
+      const courierId = String(requestUrl.searchParams.get('courier_id') || '')
+      const provider = String(requestUrl.searchParams.get('service_provider') || '').toLowerCase()
+      const planId = String(requestUrl.searchParams.get('plan_id') || '')
+      let rates = state.b2bZoneRates
+      if (courierId) rates = rates.filter((item) => String(item.courier_id) === courierId)
+      if (provider) rates = rates.filter((item) => String(item.service_provider || '').toLowerCase() === provider)
+      if (planId) rates = rates.filter((item) => String(item.plan_id) === planId)
+      return send({ success: true, data: rates })
+    }
+    if (path === '/api/admin/b2b/zone-rates' && req.method === 'POST') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const originZoneId = body.originZoneId || body.origin_zone_id
+      const destinationZoneId = body.destinationZoneId || body.destination_zone_id
+      if (!originZoneId || !destinationZoneId || !Number.isFinite(Number(body.ratePerKg ?? body.rate_per_kg))) return send({ success: false, message: 'Origin, destination and per-kg rate are required.' }, 400)
+      const ratePerKg = Number(body.ratePerKg ?? body.rate_per_kg)
+      const rate = { ...body, id: `b2b-zone-rate-${randomUUID()}`, originZoneId, origin_zone_id: originZoneId, destinationZoneId, destination_zone_id: destinationZoneId, courier_id: Number(body.courier_id || DEFAULT_MANUAL_COURIER_ID), service_provider: body.service_provider || 'manual', plan_id: body.plan_id || 'starter-b2b', ratePerKg, rate_per_kg: ratePerKg, updated_at: new Date().toISOString() }
+      state.b2bZoneRates.push(rate); save(); return send({ success: true, data: rate }, 201)
+    }
+    const b2bZoneRateMatch = path.match(/^\/api\/admin\/b2b\/zone-rates\/([^/]+)$/)
+    if (b2bZoneRateMatch && req.method === 'PUT') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const rate = state.b2bZoneRates.find((item) => item.id === b2bZoneRateMatch[1]); if (!rate) return send({ success: false, message: 'B2B zone rate not found.' }, 404)
+      const ratePerKg = Number(body.ratePerKg ?? body.rate_per_kg ?? rate.rate_per_kg)
+      Object.assign(rate, body, { ratePerKg, rate_per_kg: ratePerKg, updated_at: new Date().toISOString() }); save(); return send({ success: true, data: rate })
+    }
+    if (b2bZoneRateMatch && req.method === 'DELETE') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const before = state.b2bZoneRates.length; state.b2bZoneRates = state.b2bZoneRates.filter((item) => item.id !== b2bZoneRateMatch[1]); if (before === state.b2bZoneRates.length) return send({ success: false, message: 'B2B zone rate not found.' }, 404)
       save(); return send({ success: true })
     }
 
