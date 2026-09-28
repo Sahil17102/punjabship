@@ -1,6 +1,6 @@
-import { alpha, Box, Button, Chip, Divider, Paper, Stack, Typography } from '@mui/material'
+import { alpha, Box, Button, Chip, Divider, Grid, Paper, Stack, Typography } from '@mui/material'
 import { saveAs } from 'file-saver'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { FaFilePdf } from 'react-icons/fa'
 import {
   MdInventory2,
@@ -34,6 +34,51 @@ export const OrderExpandedRow = ({ row, type = 'b2c' }: OrderExpandedRowProps) =
 
   const maskedPhone = row?.buyer_phone ? 'Hidden by access policy' : 'Not available'
   const maskedAddress = 'Customer address is hidden for this employee account.'
+  const delivery = row?.consignee || row?.shipping_details || {}
+  const pickup = row?.pickup_details || row?.pickup || {}
+  const rawProducts = Array.isArray(row?.products) && row.products.length
+    ? row.products
+    : Array.isArray(row?.order_items) ? row.order_items : []
+  const products = rawProducts.map((product: Record<string, unknown>) => ({
+    ...product,
+    name: product.name || product.productName || product.box_name || 'Shipment item',
+    qty: product.qty || product.quantity || 1,
+  }))
+  const customerName = row?.buyer_name || row?.customer_name || delivery?.name || 'Not available'
+  const customerPhone = row?.buyer_phone || row?.customer_phone || delivery?.phone || ''
+  const customerEmail = row?.buyer_email || row?.customer_email || delivery?.email || ''
+  const deliveryAddress = row?.address || delivery?.address || delivery?.address_line_1 || ''
+  const deliveryCity = row?.city || row?.customer_city || delivery?.city || ''
+  const deliveryState = row?.state || row?.customer_state || delivery?.state || ''
+  const deliveryPincode = row?.pincode || row?.customer_pincode || delivery?.pincode || ''
+  const pickupName = pickup?.warehouse_name || pickup?.addressNickname || pickup?.name || 'Not available'
+  const pickupContact = pickup?.contactName || pickup?.name || ''
+  const pickupPhone = pickup?.contactNumber || pickup?.contactPhone || pickup?.phone || ''
+  const pickupAddress = pickup?.address || pickup?.addressLine1 || ''
+  const rawWeight = Number(row?.weight || row?.package_weight || row?.charged_weight || 0)
+  const weightKg = String(row?.type || type).toLowerCase() === 'b2c' && rawWeight > 50 ? rawWeight / 1000 : rawWeight
+  const packageLength = row?.length || row?.package_length
+  const packageBreadth = row?.breadth || row?.package_breadth
+  const packageHeight = row?.height || row?.package_height
+  const formatMoney = (value: unknown) => `₹${Number(value || 0).toFixed(2)}`
+  const formatDate = (value: unknown) => {
+    if (!value) return 'Not available'
+    const parsed = new Date(String(value))
+    return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toLocaleString('en-IN')
+  }
+  const InfoRow = ({ label, value }: { label: string; value: ReactNode }) => (
+    <Stack direction="row" justifyContent="space-between" spacing={2} py={0.55}>
+      <Typography fontSize={12.5} color="text.secondary">{label}</Typography>
+      <Typography fontSize={12.5} fontWeight={650} textAlign="right" sx={{ wordBreak: 'break-word' }}>{value || 'Not available'}</Typography>
+    </Stack>
+  )
+  const DetailCard = ({ title, children }: { title: string; children: ReactNode }) => (
+    <Paper elevation={0} sx={{ p: 1.5, height: '100%', border: '1px solid #E5E7EB', borderRadius: 2, bgcolor: '#FAFBFC' }}>
+      <Typography color={ACCENT} fontWeight={750} fontSize={13.5}>{title}</Typography>
+      <Divider sx={{ my: 0.8 }} />
+      {children}
+    </Paper>
+  )
 
   const getFriendlyMissingMessage = (fileType: 'label' | 'invoice' | 'manifest') =>
     `${
@@ -223,17 +268,26 @@ export const OrderExpandedRow = ({ row, type = 'b2c' }: OrderExpandedRowProps) =
 
   return (
     <Stack spacing={2} p={1.5}>
-      <Typography fontWeight={700} fontSize={16}>
-        Order Details
-      </Typography>
+      <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1}>
+        <Box>
+          <Typography fontWeight={800} fontSize={17}>Complete Order Details</Typography>
+          <Typography fontSize={12.5} color="text.secondary">Shipment, customer, package and payment information</Typography>
+        </Box>
+        <Chip
+          size="small"
+          color={String(row?.order_status || row?.status).toLowerCase() === 'delivered' ? 'success' : 'primary'}
+          label={String(row?.order_status || row?.status || 'pending').replace(/_/g, ' ').toUpperCase()}
+          sx={{ alignSelf: 'flex-start', fontWeight: 750 }}
+        />
+      </Stack>
       <Divider />
 
       {/* Customer Info */}
       <Stack direction="row" spacing={1} alignItems="center">
         <MdPerson size={20} />
         <Typography>
-          <strong>Customer:</strong> {row.buyer_name}{' '}
-          ({canViewCustomerDetails ? row.buyer_phone : maskedPhone})
+          <strong>Customer:</strong> {customerName}{' '}
+          ({canViewCustomerDetails ? customerPhone || 'Not available' : maskedPhone})
         </Typography>
       </Stack>
 
@@ -243,7 +297,7 @@ export const OrderExpandedRow = ({ row, type = 'b2c' }: OrderExpandedRowProps) =
         <Typography>
           <strong>Address:</strong>{' '}
           {canViewCustomerDetails
-            ? `${row.address}, ${row.city}, ${row.state} - ${row.pincode}`
+            ? `${deliveryAddress || 'Not available'}, ${deliveryCity || 'Not available'}, ${deliveryState || 'Not available'}${deliveryPincode ? ` - ${deliveryPincode}` : ''}`
             : maskedAddress}
         </Typography>
       </Stack>
@@ -253,12 +307,14 @@ export const OrderExpandedRow = ({ row, type = 'b2c' }: OrderExpandedRowProps) =
         <MdShoppingBag size={20} style={{ marginTop: 4 }} />
         <Stack spacing={0.5}>
           <Typography fontWeight={500}>Products:</Typography>
-          {row.products?.map(
+          {products.map(
             (
               p: {
-                name: string
-                qty: number
-                price: string
+                name?: string
+                productName?: string
+                qty?: number
+                quantity?: number
+                price?: string | number
                 box_name?: string
                 height?: string
                 length?: string
@@ -266,7 +322,7 @@ export const OrderExpandedRow = ({ row, type = 'b2c' }: OrderExpandedRowProps) =
               },
               i: number,
             ) =>
-              type === 'b2c' ? (
+              String(row?.type || type).toLowerCase() === 'b2c' ? (
                 <Typography key={i} fontSize={13}>
                   {p?.name} x {p?.qty} - ₹{p?.price}
                 </Typography>
@@ -288,9 +344,9 @@ export const OrderExpandedRow = ({ row, type = 'b2c' }: OrderExpandedRowProps) =
       <Stack direction="row" spacing={1} alignItems="center">
         <MdLocalShipping size={20} />
         <Typography>
-          <strong>Pickup Location:</strong> {row?.pickup_details?.name},{' '}
-          {row?.pickup_details?.address}, {row?.pickup_details?.city} -{' '}
-          {row?.pickup_details?.pincode}
+          <strong>Pickup Location:</strong> {pickupName}
+          {pickupAddress ? `, ${pickupAddress}` : ''}{pickup?.city ? `, ${pickup.city}` : ''}
+          {pickup?.state ? `, ${pickup.state}` : ''}{pickup?.pincode ? ` - ${pickup.pincode}` : ''}
         </Typography>
       </Stack>
 
@@ -309,6 +365,60 @@ export const OrderExpandedRow = ({ row, type = 'b2c' }: OrderExpandedRowProps) =
           </Typography>
         </Stack>
       </Stack>
+
+      <Grid container spacing={1.5}>
+        <Grid size={{ xs: 12, md: 6 }}>
+          <DetailCard title="Order Information">
+            <InfoRow label="Order Number" value={row?.order_number || row?.order_id} />
+            <InfoRow label="Order Date" value={formatDate(row?.order_date || row?.created_at)} />
+            <InfoRow label="Shipment Type" value={String(row?.type || type).toUpperCase()} />
+            <InfoRow label="Payment Mode" value={String(row?.payment_type || row?.order_type || 'prepaid').toUpperCase()} />
+            <InfoRow label="Source" value={String(row?.source || row?.integration_type || 'Manual')} />
+          </DetailCard>
+        </Grid>
+        <Grid size={{ xs: 12, md: 6 }}>
+          <DetailCard title="Shipment Information">
+            <InfoRow label="Status" value={String(row?.order_status || row?.status || 'pending').replace(/_/g, ' ').toUpperCase()} />
+            <InfoRow label="Shipment ID" value={row?.shipment_id || row?.id} />
+            <InfoRow label="Zone" value={row?.delivery_location || row?.zone_id} />
+            <InfoRow label="Pickup Status" value={row?.pickup_status || (row?.manifest ? 'Manifest ready' : 'Awaiting manifest')} />
+            <InfoRow label="Last Updated" value={formatDate(row?.updated_at)} />
+          </DetailCard>
+        </Grid>
+        <Grid size={{ xs: 12, md: 6 }}>
+          <DetailCard title="Customer Information">
+            <InfoRow label="Name" value={customerName} />
+            <InfoRow label="Phone" value={canViewCustomerDetails ? customerPhone : maskedPhone} />
+            <InfoRow label="Email" value={canViewCustomerDetails ? customerEmail : 'Hidden by access policy'} />
+          </DetailCard>
+        </Grid>
+        <Grid size={{ xs: 12, md: 6 }}>
+          <DetailCard title="Package Information">
+            <InfoRow label="Weight" value={weightKg ? `${weightKg.toFixed(2)} kg` : 'Not available'} />
+            <InfoRow label="Dimensions (L × B × H)" value={packageLength && packageBreadth && packageHeight ? `${packageLength} × ${packageBreadth} × ${packageHeight} cm` : 'Not available'} />
+            <InfoRow label="Packages" value={row?.package_count || (Array.isArray(row?.packages) ? row.packages.length : 1)} />
+            <InfoRow label="Insurance" value={row?.is_insurance ? 'Included' : 'Not included'} />
+          </DetailCard>
+        </Grid>
+        <Grid size={{ xs: 12, md: 6 }}>
+          <DetailCard title="Financial Information">
+            <InfoRow label="Order Amount" value={formatMoney(row?.order_amount || row?.total_amount)} />
+            <InfoRow label="Freight" value={formatMoney(row?.freight_charges || row?.shipping_charges)} />
+            <InfoRow label="COD Charges" value={formatMoney(row?.cod_charges)} />
+            <InfoRow label="Courier Total" value={formatMoney(row?.courier_cost || row?.wallet_debit_amount || row?.freight_charges)} />
+            <InfoRow label="Discount" value={formatMoney(row?.discount)} />
+          </DetailCard>
+        </Grid>
+        <Grid size={{ xs: 12, md: 6 }}>
+          <DetailCard title="Pickup Contact">
+            <InfoRow label="Warehouse" value={pickupName} />
+            <InfoRow label="Contact" value={pickupContact} />
+            <InfoRow label="Phone" value={pickupPhone} />
+            <InfoRow label="Schedule" value={[pickup?.pickup_date || row?.pickup_date, pickup?.pickup_time || row?.pickup_time].filter(Boolean).join(' · ')} />
+            <InfoRow label="Address" value={[pickupAddress, pickup?.city, pickup?.state, pickup?.pincode].filter(Boolean).join(', ')} />
+          </DetailCard>
+        </Grid>
+      </Grid>
 
       {sortCodeValue && (
         <Stack direction="row" spacing={1} alignItems="center">
