@@ -39,7 +39,24 @@ export const useUpdatePickupAddress = () => {
   return useMutation({
     mutationFn: ({ id, payload }: { id: string; payload: Partial<HydratedPickup> }) =>
       updatePickupAddress(id, payload),
-    onSuccess: () => {
+    onMutate: async ({ id, payload }) => {
+      await queryClient.cancelQueries({ queryKey: ['pickupAddresses'] })
+      const previous = queryClient.getQueriesData({ queryKey: ['pickupAddresses'] })
+      queryClient.setQueriesData<{ pickupAddresses: HydratedPickup[]; totalCount: number }>(
+        { queryKey: ['pickupAddresses'] },
+        (current) => current ? {
+          ...current,
+          pickupAddresses: current.pickupAddresses.map((address) =>
+            (address.pickupId || address.id) === id ? { ...address, ...payload } : address,
+          ),
+        } : current,
+      )
+      return { previous }
+    },
+    onError: (_error, _variables, context) => {
+      context?.previous.forEach(([key, value]) => queryClient.setQueryData(key, value))
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['pickupAddresses'] })
     },
   })

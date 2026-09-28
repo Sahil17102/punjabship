@@ -40,6 +40,7 @@ export const useCreateShipment = (onClose?: () => void) => {
       toast.open({ message: 'Shipment created successfully', severity: 'success' })
       console.log('Shipment created successfully:', data)
       queryClient.invalidateQueries({ queryKey: ['b2cOrdersByUser'] })
+      queryClient.invalidateQueries({ queryKey: ['orders'] })
       if (onClose) onClose() // ✅ Close modal/drawer after success
     },
   })
@@ -88,6 +89,7 @@ export const useCreateB2BShipment = (onClose?: () => void) => {
       toast.open({ message: 'B2B Shipment created successfully', severity: 'success' })
       console.log('B2B Shipment created successfully:', data)
       queryClient.invalidateQueries({ queryKey: ['b2bOrdersByUser'] })
+      queryClient.invalidateQueries({ queryKey: ['orders'] })
       if (onClose) onClose() // ✅ Close modal/drawer after success
     },
   })

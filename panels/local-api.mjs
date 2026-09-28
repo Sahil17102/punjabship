@@ -715,15 +715,16 @@ const filterAndPaginateOrders = (ordersToFilter, requestUrl) => {
   const sortOrder = String(requestUrl.searchParams.get('sortOrder') || 'desc').toLowerCase() === 'asc' ? 'asc' : 'desc'
   let filtered = ordersToFilter.map(orderForPanels)
   if (search) filtered = filtered.filter((order) => JSON.stringify(order).toLowerCase().includes(search))
+  const statusCounts = filtered.reduce((counts, order) => {
+    const key = order.order_status || 'pending'
+    counts[key] = (counts[key] || 0) + 1
+    counts.all += 1
+    return counts
+  }, { all: 0 })
   if (status) filtered = filtered.filter((order) => String(order.order_status || '').toLowerCase() === status)
   filtered.sort((a, b) => sortOrder === 'asc'
     ? String(a.created_at || '').localeCompare(String(b.created_at || ''))
     : String(b.created_at || '').localeCompare(String(a.created_at || '')))
-  const statusCounts = filtered.reduce((counts, order) => {
-    const key = order.order_status || 'pending'
-    counts[key] = (counts[key] || 0) + 1
-    return counts
-  }, {})
   const start = (page - 1) * limit
   return { orders: filtered.slice(start, start + limit), totalCount: filtered.length, totalPages: Math.max(1, Math.ceil(filtered.length / limit)), page, limit, statusCounts }
 }
@@ -912,6 +913,86 @@ const createManualShipmentOrder = (seller, body, type) => {
   }
   save()
   return { order, shipment }
+}
+
+const pdfEscape = (value) => String(value ?? '').replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)').replace(/[^\x20-\x7E]/g, '')
+const pdfText = (x, y, size, value, bold = false) => `BT /${bold ? 'F2' : 'F1'} ${size} Tf ${x} ${y} Td (${pdfEscape(value)}) Tj ET`
+const pdfLine = (x1, y1, x2, y2, width = 1) => `${width} w ${x1} ${y1} m ${x2} ${y2} l S`
+const pdfRect = (x, y, width, height, fill = false) => `${x} ${y} ${width} ${height} re ${fill ? 'f' : 'S'}`
+const createPdf = (width, height, commands) => {
+  const stream = commands.join('\n')
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${width} ${height}] /Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 6 0 R >>`,
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>',
+    `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`,
+  ]
+  let output = '%PDF-1.4\n'
+  const offsets = [0]
+  objects.forEach((object, index) => {
+    offsets.push(Buffer.byteLength(output))
+    output += `${index + 1} 0 obj\n${object}\nendobj\n`
+  })
+  const xref = Buffer.byteLength(output)
+  output += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`
+  output += offsets.slice(1).map((offset) => `${String(offset).padStart(10, '0')} 00000 n \n`).join('')
+  output += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`
+  return Buffer.from(output)
+}
+const documentFileName = (order, type) => `${String(order.order_number || order.order_id || order.id).replace(/[^A-Za-z0-9_-]/g, '_')}-${type}.pdf`
+const createOrderDocumentPdf = (order, type) => {
+  const seller = state.users.find((item) => item.id === order.user_id) || {}
+  const pickup = order.pickup || order.pickup_details || {}
+  const consignee = order.consignee || order.shipping_details || {}
+  const orderNumber = order.order_number || order.order_id || order.id
+  const awb = order.awb_number || order.local_awb || '-'
+  const courier = order.courier_partner || 'PunjabShip Manual'
+  const recipient = order.buyer_name || order.customer_name || consignee.name || '-'
+  const phone = order.buyer_phone || order.customer_phone || consignee.phone || '-'
+  const address = consignee.address || order.address || order.customer_address || ''
+  const cityLine = [consignee.city || order.city, consignee.state || order.state, consignee.pincode || order.pincode].filter(Boolean).join(', ')
+  const pickupName = pickup.addressNickname || pickup.name || seller.companyInfo?.businessName || 'PunjabShip Merchant'
+  const pickupLine = [pickup.address || pickup.addressLine1, pickup.city, pickup.state, pickup.pincode].filter(Boolean).join(', ')
+  const amount = Number(order.order_amount || order.total_amount || 0)
+  const freight = Number(order.freight_charges || order.wallet_debit_amount || 0)
+  const rawWeight = Number(order.weight || order.chargeable_weight || 0)
+  const weight = String(order.type || '').toLowerCase() === 'b2c' && rawWeight > 50 ? rawWeight / 1000 : rawWeight
+  const products = Array.isArray(order.products) ? order.products : []
+  const now = new Date().toISOString().slice(0, 10)
+
+  if (type === 'label') {
+    const commands = ['0 G', '0 g', pdfRect(12, 12, 264, 408), pdfRect(20, 372, 248, 45, true), '1 g', pdfText(30, 394, 20, 'PUNJABSHIP', true), pdfText(30, 379, 9, 'SHIPMENT LABEL', true), '0 g']
+    commands.push(pdfText(22, 350, 9, 'AWB', true), pdfText(22, 326, 18, awb, true), pdfText(22, 306, 9, `ORDER: ${orderNumber}`), pdfText(22, 291, 9, `COURIER: ${courier}`), pdfText(22, 276, 9, `PAYMENT: ${String(order.payment_type || order.order_type || 'prepaid').toUpperCase()}`), pdfLine(20, 263, 268, 263))
+    commands.push(pdfText(22, 246, 10, 'DELIVER TO', true), pdfText(22, 228, 13, recipient, true), pdfText(22, 212, 9, phone), pdfText(22, 196, 9, address.slice(0, 48)), pdfText(22, 180, 9, cityLine.slice(0, 48)), pdfLine(20, 165, 268, 165))
+    commands.push(pdfText(22, 148, 10, 'SHIP FROM', true), pdfText(22, 131, 10, pickupName.slice(0, 42), true), pdfText(22, 115, 8, pickupLine.slice(0, 52)), pdfText(22, 92, 9, `WEIGHT: ${weight || 0.5} kg`), pdfText(160, 92, 9, `VALUE: INR ${amount.toFixed(2)}`))
+    for (let i = 0; i < 58; i += 1) if (i % 3 !== 1) commands.push(pdfRect(28 + i * 3.65, 35, i % 4 === 0 ? 2.2 : 1.1, 38, true))
+    commands.push(pdfText(74, 20, 7, awb))
+    return createPdf(288, 432, commands)
+  }
+
+  const commands = ['0 G', '0 g', pdfRect(28, 28, 539, 786), pdfRect(28, 752, 539, 62, true), '1 g', pdfText(48, 784, 23, 'PUNJABSHIP', true), pdfText(48, 765, 10, type === 'manifest' ? 'DISPATCH MANIFEST' : 'COMMERCIAL INVOICE', true), '0 g']
+  if (type === 'manifest') {
+    commands.push(pdfText(48, 724, 10, `Manifest ID: ${order.manifest_id || `MNF-${String(orderNumber).slice(-10)}`}`, true), pdfText(360, 724, 10, `Date: ${now}`), pdfText(48, 704, 10, `Courier: ${courier}`), pdfText(48, 686, 9, `Pickup: ${pickupName} - ${pickupLine}`), pdfLine(48, 670, 547, 670))
+    commands.push(pdfText(48, 650, 9, 'AWB', true), pdfText(195, 650, 9, 'ORDER', true), pdfText(330, 650, 9, 'RECIPIENT', true), pdfText(472, 650, 9, 'PINCODE', true), pdfLine(48, 642, 547, 642))
+    commands.push(pdfText(48, 622, 9, awb), pdfText(195, 622, 9, String(orderNumber).slice(0, 20)), pdfText(330, 622, 9, recipient.slice(0, 22)), pdfText(472, 622, 9, consignee.pincode || order.pincode || '-'), pdfLine(48, 608, 547, 608))
+    commands.push(pdfText(48, 570, 10, 'Shipment Summary', true), pdfText(48, 550, 9, 'Packages: 1'), pdfText(180, 550, 9, `Weight: ${weight || 0.5} kg`), pdfText(330, 550, 9, `Declared Value: INR ${amount.toFixed(2)}`), pdfText(48, 490, 9, 'Declaration: The shipment details above are accurate and ready for dispatch.'), pdfLine(48, 410, 225, 410), pdfLine(370, 410, 547, 410), pdfText(48, 394, 8, 'Merchant Signature'), pdfText(370, 394, 8, 'PunjabShip Operations'))
+  } else {
+    commands.push(pdfText(48, 724, 10, `Invoice / Order No: ${orderNumber}`, true), pdfText(380, 724, 10, `Date: ${now}`), pdfText(48, 698, 10, 'BILL TO', true), pdfText(48, 680, 11, recipient, true), pdfText(48, 663, 9, `${address} ${cityLine}`.slice(0, 75)), pdfText(48, 646, 9, `Phone: ${phone}`), pdfLine(48, 626, 547, 626))
+    commands.push(pdfText(48, 606, 9, 'DESCRIPTION', true), pdfText(350, 606, 9, 'QTY', true), pdfText(430, 606, 9, 'RATE', true), pdfText(505, 606, 9, 'AMOUNT', true), pdfLine(48, 596, 547, 596))
+    let y = 574
+    const rows = products.length ? products.slice(0, 8) : [{ name: 'Shipment goods', quantity: 1, price: amount }]
+    for (const product of rows) {
+      const name = product.productName || product.name || 'Shipment goods'
+      const qty = Number(product.quantity || 1)
+      const price = Number(product.price || 0)
+      commands.push(pdfText(48, y, 9, String(name).slice(0, 45)), pdfText(360, y, 9, qty), pdfText(430, y, 9, price.toFixed(2)), pdfText(505, y, 9, (qty * price).toFixed(2)))
+      y -= 22
+    }
+    commands.push(pdfLine(330, 365, 547, 365), pdfText(350, 340, 10, 'Subtotal', true), pdfText(490, 340, 10, `INR ${amount.toFixed(2)}`), pdfText(350, 318, 10, 'Shipping', true), pdfText(490, 318, 10, `INR ${freight.toFixed(2)}`), pdfLine(330, 304, 547, 304), pdfText(350, 278, 12, 'Grand Total', true), pdfText(475, 278, 12, `INR ${(amount + freight).toFixed(2)}`, true), pdfText(48, 215, 9, `AWB: ${awb}`), pdfText(48, 198, 9, `Courier: ${courier}`), pdfText(48, 150, 9, 'This is a computer-generated invoice and does not require a physical signature.'), pdfText(48, 95, 9, 'Thank you for shipping with PunjabShip.', true))
+  }
+  return createPdf(595, 842, commands)
 }
 
 const parseMultipart = (raw, contentType) => {
@@ -1736,6 +1817,73 @@ http.createServer(async (req, res) => {
       if (!isManualCourierOrder(body)) return send({ success: false, message: 'Select PunjabShip Manual for B2B booking.' }, 400)
       const { order, shipment } = createManualShipmentOrder(seller, body, 'b2b')
       return send({ success: true, message: 'Manual B2B shipment booked.', shipment: orderForPanels(order), manualShipment: shipment }, 201)
+    }
+    if (path === '/api/orders/b2c/manifest' && req.method === 'POST') {
+      const seller = currentSeller(req)
+      if (!seller) return send({ success: false, message: 'Authentication required.' }, 401)
+      const references = Array.isArray(body.awbs) ? body.awbs.map(String) : []
+      const matched = state.orders.filter((order) => order.user_id === seller.id && references.includes(String(order.awb_number || order.id)))
+      if (!matched.length) return send({ success: false, message: 'No eligible shipments found for this manifest.' }, 404)
+      const manifestId = `MNF-${Date.now()}`
+      for (const order of matched) {
+        const key = `manual-doc:manifest:${order.id}`
+        order.manifest_id = manifestId
+        order.manifest = key
+        order.manifest_key = key
+        order.order_status = 'manifested'
+        order.status = 'manifested'
+        order.updated_at = new Date().toISOString()
+      }
+      save()
+      return send({ manifest_id: manifestId, manifest_url: `manual-doc:manifest:${matched[0].id}`, warnings: [] })
+    }
+    const regenerateDocumentsMatch = path.match(/^\/api\/orders\/([^/]+)\/regenerate-documents$/)
+    if (regenerateDocumentsMatch && req.method === 'POST') {
+      const seller = currentSeller(req)
+      if (!seller) return send({ success: false, message: 'Authentication required.' }, 401)
+      const order = state.orders.find((item) => item.user_id === seller.id && item.id === decodeURIComponent(regenerateDocumentsMatch[1]))
+      if (!order) return send({ success: false, message: 'Order not found.' }, 404)
+      if (body.regenerateLabel !== false) {
+        order.label_key = `manual-doc:label:${order.id}`
+        order.label = order.label_key
+      }
+      if (body.regenerateInvoice !== false) {
+        order.invoice_key = `manual-doc:invoice:${order.id}`
+        order.invoice_link = order.invoice_key
+      }
+      order.updated_at = new Date().toISOString()
+      save()
+      return send({ success: true, order: orderForPanels(order), message: 'Shipment documents generated.' })
+    }
+    if (path === '/api/uploads/presign-download-url' && req.method === 'POST') {
+      const seller = currentSeller(req)
+      if (!seller) return send({ success: false, message: 'Authentication required.' }, 401)
+      const keys = Array.isArray(body.keys) ? body.keys : [body.keys]
+      const protocol = String(req.headers['x-forwarded-proto'] || 'http').split(',')[0]
+      const host = req.headers.host
+      const urls = keys.map((key) => {
+        const match = String(key || '').match(/^manual-doc:(label|invoice|manifest):(.+)$/)
+        if (!match) return null
+        const order = state.orders.find((item) => item.user_id === seller.id && item.id === match[2])
+        return order ? `${protocol}://${host}/api/orders/documents/download?key=${encodeURIComponent(key)}` : null
+      })
+      return Array.isArray(body.keys) ? send({ urls }) : send({ url: urls[0] })
+    }
+    if (path === '/api/orders/documents/download' && req.method === 'GET') {
+      const key = String(requestUrl.searchParams.get('key') || '')
+      const match = key.match(/^manual-doc:(label|invoice|manifest):(.+)$/)
+      const order = match ? state.orders.find((item) => item.id === match[2]) : null
+      if (!match || !order) return send({ success: false, message: 'Document not found.' }, 404)
+      const type = match[1]
+      const pdf = createOrderDocumentPdf(order, type)
+      res.writeHead(200, {
+        'Content-Type': 'application/pdf',
+        'Content-Length': pdf.length,
+        'Content-Disposition': `inline; filename="${documentFileName(order, type)}"`,
+        'Cache-Control': 'private, max-age=300',
+      })
+      res.end(pdf)
+      return
     }
     if (['/api/orders/b2c/list', '/api/orders/b2b/list', '/api/orders/all'].includes(path) && req.method === 'GET') {
       const seller = currentSeller(req)
