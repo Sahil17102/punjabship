@@ -30,7 +30,7 @@ const PickupAddressesList = ({
   onPageChange,
   onRowsPerPageChange,
 }: IPickupAddressListProps) => {
-  const { mutate: updatePickupAddress } = useUpdatePickupAddress()
+  const { mutate: updatePickupAddress, isPending: isUpdatingPickup } = useUpdatePickupAddress()
   const theme = useTheme()
   const isXs = useMediaQuery(theme.breakpoints.down('sm'))
   const isSm = useMediaQuery(theme.breakpoints.between('sm', 'md'))
@@ -154,8 +154,9 @@ const PickupAddressesList = ({
             }}
           />
           <CustomSwitch
-            onChange={(event) => handleStatusToggle(row.pickupId || row.id, event.target.checked)}
+            onChange={() => handleStatusToggle(row.pickupId || row.id, !Boolean(value))}
             checked={Boolean(value)}
+            disabled={isUpdatingPickup}
           />
         </Stack>
       ),
