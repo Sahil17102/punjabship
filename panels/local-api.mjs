@@ -1324,7 +1324,9 @@ http.createServer(async (req, res) => {
       return send({ success: true, data: states })
     }
     if (path === '/api/admin/b2b/zones' && req.method === 'GET') {
-      return send({ success: true, data: state.zones.filter((item) => normalizeBusinessType(item.business_type) === 'b2b') })
+      return send({ success: true, data: state.zones
+        .filter((item) => normalizeBusinessType(item.business_type) === 'b2b')
+        .map((item) => ({ ...item, created_at: item.created_at || item.createdAt || '2026-09-28T00:00:00.000Z' })) })
     }
     if (path === '/api/admin/b2b/zones' && req.method === 'POST') {
       if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
