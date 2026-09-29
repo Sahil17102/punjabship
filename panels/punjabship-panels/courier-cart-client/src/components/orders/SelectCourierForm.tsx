@@ -305,9 +305,7 @@ export const SelectCourierForm = ({ shipment_type }: { shipment_type: 'b2b' | 'b
   const getCourierChargeableWeight = (courier: any) => {
     const activeChargeableWeight = getActiveLocalRate(courier)?.chargeable_weight
     if (shipment_type === 'b2c') {
-      return activeChargeableWeight !== undefined && activeChargeableWeight !== null
-        ? activeChargeableWeight
-        : null
+      return activeChargeableWeight ?? courier?.chargeable_weight ?? null
     }
 
     return activeChargeableWeight ?? courier?.chargeable_weight ?? null
