@@ -33,6 +33,12 @@ const loadPincodeChunk = (prefix: string) => {
   return request
 }
 
+export const prefetchPincodePrefix = (value: unknown) => {
+  const digits = normalizePincode(value)
+  if (digits.length < 2) return
+  void loadPincodeChunk(digits.slice(0, 2))
+}
+
 const lookupViaStaticIndex = async (pincode: string): Promise<PincodeLocation | null> => {
   const chunk = await loadPincodeChunk(pincode.slice(0, 2))
   const location = chunk?.[pincode]
