@@ -936,7 +936,6 @@ const createManualShipmentOrder = (seller, body, type) => {
     seller.walletBalance = Number((walletBalanceOf(seller) - freight).toFixed(2))
     state.walletTransactions.unshift({ id: `wallet-transaction-${randomUUID()}`, wallet_id: walletIdOf(seller), user_id: seller.id, amount: freight, type: 'debit', reason: 'shipment_booking', category: 'shipping_charges', ref: localAwb, meta: { courier_partner: courier.displayName, order_id: orderId }, currency: 'INR', created_at: now, balance_after: seller.walletBalance })
   }
-  save()
   return { order, shipment }
 }
 
@@ -1796,6 +1795,7 @@ http.createServer(async (req, res) => {
       if (!readiness.isReady) return send({ success: false, message: 'Complete account approval, KYC, plan and pickup setup before booking a shipment.', readiness }, 403)
       if (isManualCourierOrder(body)) {
         const { order, shipment } = createManualShipmentOrder(seller, body, 'b2c')
+        await stateStore.save(state)
         return send({ success: true, message: 'Manual courier shipment booked.', shipment: orderForPanels(order), manualShipment: shipment }, 201)
       }
       if (!isShipGlobalOrder(body)) return send({ success: false, message: 'Select ShipGlobal as the courier partner for live booking.' }, 400)
@@ -1833,7 +1833,7 @@ http.createServer(async (req, res) => {
         updated_at: now,
       }
       state.orders.unshift(order)
-      save()
+      await stateStore.save(state)
       return send({ success: true, message: awb ? 'ShipGlobal shipment created.' : 'ShipGlobal accepted the order; AWB is pending.', shipment: orderForPanels(order), providerResponse: providerResult.data }, 201)
     }
     if (path === '/api/orders/b2b/create' && req.method === 'POST') {
@@ -1843,6 +1843,7 @@ http.createServer(async (req, res) => {
       if (!readiness.isReady) return send({ success: false, message: 'Complete account approval, KYC, plan and pickup setup before booking a shipment.', readiness }, 403)
       if (!isManualCourierOrder(body)) return send({ success: false, message: 'Select PunjabShip Manual for B2B booking.' }, 400)
       const { order, shipment } = createManualShipmentOrder(seller, body, 'b2b')
+      await stateStore.save(state)
       return send({ success: true, message: 'Manual B2B shipment booked.', shipment: orderForPanels(order), manualShipment: shipment }, 201)
     }
     if (path === '/api/orders/b2c/manifest' && req.method === 'POST') {
