@@ -11,11 +11,14 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Controller, useFormContext } from 'react-hook-form'
 import { BiCheckCircle } from 'react-icons/bi'
 import { usePickupAddresses } from '../../hooks/Pickup/usePickupAddresses'
 import { getDefaultPickupSlot } from '../../utils/pickupSchedule'
+import type { HydratedPickup } from '../../types/generic.types'
+import AddPickupAddressForm from '../pickups/AddPickupAddressForm'
+import CustomDrawer from '../UI/drawer/CustomDrawer'
 import type { B2BFormData } from './b2b/B2BOrderForm'
 import type { B2CFormData } from './b2c/B2COrderForm'
 
@@ -33,15 +36,58 @@ const PickupLocationForm = ({ compact = false }: { compact?: boolean }) => {
 
   const [openRto, setOpenRto] = useState<Record<string, boolean>>({})
   const [useWarehouse, setUseWarehouse] = useState(true)
+  const [addLocationOpen, setAddLocationOpen] = useState(false)
 
   const pickupDate = watch('pickupDate') as string | undefined
   const pickupTime = watch('pickupTime') as string | undefined
+  const selectedPickupLocationId = watch('pickupLocationId') as string | undefined
 
   const toggleRto = (id: string) => {
     setOpenRto((prev) => ({ ...prev, [id]: !prev[id] }))
   }
 
   const primaryLocation = locations?.pickupAddresses?.find((l) => l.isPrimary)
+  const alternateLocations = locations?.pickupAddresses?.filter((location) => !location.isPrimary) ?? []
+
+  const applyLocation = useCallback((location: HydratedPickup) => {
+    setValue('pickupLocationId', location.pickupId)
+    setValue('pickupLocationPincode', location.pickup?.pincode)
+    setValue('pickupLocationName', location.pickup?.addressNickname)
+    setValue('pickupLocationPOCName', location.pickup?.contactName)
+    setValue('pickupLocationPOCPhone', location.pickup?.contactPhone)
+    setValue('pickupAddress', location.pickup?.addressLine1)
+    setValue('pickupCity', location.pickup?.city)
+    setValue('pickupState', location.pickup?.state)
+
+    if (location.isRTOSame) {
+      setValue('isRtoSame', true)
+      setValue('rtoLocationPincode', location.pickup?.pincode)
+      setValue('rtoLocationName', location.pickup?.addressNickname)
+      setValue('rtoLocationPOCName', location.pickup?.contactName)
+      setValue('rtoLocationPOCPhone', location.pickup?.contactPhone)
+      setValue('rtoAddress', location.pickup?.addressLine1)
+      setValue('rtoCity', location.pickup?.city)
+      setValue('rtoState', location.pickup?.state)
+    } else if (location.rto) {
+      setValue('isRtoSame', false)
+      setValue('rtoLocationPincode', location.rto.pincode)
+      setValue('rtoLocationName', location.rto.addressNickname)
+      setValue('rtoLocationPOCName', location.rto.contactName)
+      setValue('rtoLocationPOCPhone', location.rto.contactPhone)
+      setValue('rtoAddress', location.rto.addressLine1)
+      setValue('rtoCity', location.rto.city)
+      setValue('rtoState', location.rto.state)
+    } else {
+      setValue('isRtoSame', false)
+      setValue('rtoLocationPincode', '')
+      setValue('rtoLocationName', '')
+      setValue('rtoLocationPOCName', '')
+      setValue('rtoLocationPOCPhone', '')
+      setValue('rtoAddress', '')
+      setValue('rtoCity', '')
+      setValue('rtoState', '')
+    }
+  }, [setValue])
 
   useEffect(() => {
     const defaultPickupSlot = getDefaultPickupSlot()
@@ -54,46 +100,10 @@ const PickupLocationForm = ({ compact = false }: { compact?: boolean }) => {
   }, [pickupDate, pickupTime, setValue])
 
   useEffect(() => {
-    if (primaryLocation) {
-      setValue('pickupLocationId', primaryLocation?.pickupId)
-      setValue('pickupLocationPincode', primaryLocation.pickup?.pincode)
-      setValue('pickupLocationName', primaryLocation.pickup?.addressNickname)
-      setValue('pickupLocationPOCName', primaryLocation.pickup?.contactName)
-      setValue('pickupLocationPOCPhone', primaryLocation.pickup?.contactPhone)
-      setValue('pickupAddress', primaryLocation.pickup?.addressLine1)
-      setValue('pickupCity', primaryLocation.pickup?.city)
-      setValue('pickupState', primaryLocation.pickup?.state)
-
-      if (primaryLocation?.isRTOSame) {
-        setValue('isRtoSame', true)
-        setValue('rtoLocationPincode', primaryLocation.pickup?.pincode)
-        setValue('rtoLocationName', primaryLocation.pickup?.addressNickname)
-        setValue('rtoLocationPOCName', primaryLocation.pickup?.contactName)
-        setValue('rtoLocationPOCPhone', primaryLocation.pickup?.contactPhone)
-        setValue('rtoAddress', primaryLocation.pickup?.addressLine1)
-        setValue('rtoCity', primaryLocation.pickup?.city)
-        setValue('rtoState', primaryLocation.pickup?.state)
-      } else if (primaryLocation?.rto) {
-        setValue('isRtoSame', false)
-        setValue('rtoLocationPincode', primaryLocation?.rto?.pincode)
-        setValue('rtoLocationName', primaryLocation.rto?.addressNickname)
-        setValue('rtoLocationPOCName', primaryLocation?.rto?.contactName)
-        setValue('rtoLocationPOCPhone', primaryLocation?.rto?.contactPhone)
-        setValue('rtoAddress', primaryLocation?.rto?.addressLine1)
-        setValue('rtoCity', primaryLocation?.rto?.city)
-        setValue('rtoState', primaryLocation?.rto?.state)
-      } else {
-        setValue('isRtoSame', false)
-        setValue('rtoLocationPincode', '')
-        setValue('rtoLocationName', '')
-        setValue('rtoLocationPOCName', '')
-        setValue('rtoLocationPOCPhone', '')
-        setValue('rtoAddress', '')
-        setValue('rtoCity', '')
-        setValue('rtoState', '')
-      }
+    if (useWarehouse && primaryLocation && !selectedPickupLocationId) {
+      applyLocation(primaryLocation)
     }
-  }, [primaryLocation, setValue])
+  }, [applyLocation, primaryLocation, selectedPickupLocationId, useWarehouse])
 
   if (isLoading) return <Typography>Loading pickup locations...</Typography>
   if (isError) return <Typography color="error">Failed to load pickup locations</Typography>
@@ -101,6 +111,7 @@ const PickupLocationForm = ({ compact = false }: { compact?: boolean }) => {
     return <Typography>No pickup locations found</Typography>
 
   return (
+    <>
     <Controller
       name="pickupLocationId"
       control={control}
@@ -114,16 +125,7 @@ const PickupLocationForm = ({ compact = false }: { compact?: boolean }) => {
               <Paper
                 onClick={() => {
                   setUseWarehouse(true)
-                  if (primaryLocation) {
-                    field.onChange(primaryLocation.pickupId)
-                    setValue('pickupLocationPincode', primaryLocation.pickup?.pincode)
-                    setValue('pickupLocationName', primaryLocation.pickup?.addressNickname)
-                    setValue('pickupLocationPOCName', primaryLocation.pickup?.contactName)
-                    setValue('pickupLocationPOCPhone', primaryLocation.pickup?.contactPhone)
-                    setValue('pickupAddress', primaryLocation.pickup?.addressLine1)
-                    setValue('pickupCity', primaryLocation.pickup?.city)
-                    setValue('pickupState', primaryLocation.pickup?.state)
-                  }
+                  if (primaryLocation) applyLocation(primaryLocation)
                 }}
                 sx={{
                   flex: 1,
@@ -170,7 +172,10 @@ const PickupLocationForm = ({ compact = false }: { compact?: boolean }) => {
 
               {/* Use Different Location Option */}
               <Paper
-                onClick={() => setUseWarehouse(false)}
+                onClick={() => {
+                  setUseWarehouse(false)
+                  if (field.value === primaryLocation?.pickupId) field.onChange('')
+                }}
                 sx={{
                   flex: 1,
                   p: compact ? 0.65 : 1.25,
@@ -187,7 +192,10 @@ const PickupLocationForm = ({ compact = false }: { compact?: boolean }) => {
                 <Stack direction="row" gap={compact ? 0.5 : 1} alignItems="center">
                   <Radio
                     checked={!useWarehouse}
-                    onChange={() => setUseWarehouse(false)}
+                    onChange={() => {
+                      setUseWarehouse(false)
+                      if (field.value === primaryLocation?.pickupId) field.onChange('')
+                    }}
                     size="small"
                     sx={{ p: compact ? 0.25 : 0.5 }}
                     disableRipple
@@ -282,7 +290,44 @@ const PickupLocationForm = ({ compact = false }: { compact?: boolean }) => {
           {/* All Locations - Show when "Use different location" selected */}
           {!useWarehouse && (
             <Grid container spacing={compact ? 0.9 : 1.25} mb={0.5}>
-              {locations.pickupAddresses.map((loc) => {
+              <Grid size={12}>
+                <Stack direction={{ xs: 'column', sm: 'row' }} gap={1} alignItems={{ sm: 'center' }} justifyContent="space-between">
+                  <Stack spacing={0.2}>
+                    <Typography fontWeight={700}>Choose another pickup location</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Select a saved location or add a new pickup address.
+                    </Typography>
+                  </Stack>
+                  <Button
+                    variant="contained"
+                    onClick={() => setAddLocationOpen(true)}
+                    sx={{ textTransform: 'none', alignSelf: { xs: 'stretch', sm: 'center' } }}
+                  >
+                    + Add new location
+                  </Button>
+                </Stack>
+              </Grid>
+
+              {alternateLocations.length === 0 && (
+                <Grid size={12}>
+                  <Paper
+                    variant="outlined"
+                    sx={{
+                      p: compact ? 1.25 : 2,
+                      textAlign: 'center',
+                      borderStyle: 'dashed',
+                      borderColor: alpha(ACCENT, 0.35),
+                    }}
+                  >
+                    <Typography fontWeight={700}>No other pickup location added yet</Typography>
+                    <Typography variant="body2" color="text.secondary" mt={0.4}>
+                      Add a location once, then select it here for this order.
+                    </Typography>
+                  </Paper>
+                </Grid>
+              )}
+
+              {alternateLocations.map((loc) => {
                 const isSelected = field.value === loc.pickupId
                 const isOpen = openRto[loc.id] || false
 
@@ -517,6 +562,21 @@ const PickupLocationForm = ({ compact = false }: { compact?: boolean }) => {
         </Stack>
       )}
     />
+      <CustomDrawer
+        width={980}
+        open={addLocationOpen}
+        onClose={() => setAddLocationOpen(false)}
+        title="Add pickup location"
+      >
+        <AddPickupAddressForm
+          setDrawer={setAddLocationOpen}
+          onSaved={(address) => {
+            setUseWarehouse(false)
+            applyLocation(address)
+          }}
+        />
+      </CustomDrawer>
+    </>
   )
 }
 

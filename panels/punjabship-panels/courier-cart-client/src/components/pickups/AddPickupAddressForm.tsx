@@ -18,7 +18,7 @@ import {
   useCreatePickupAddress,
   useUpdatePickupAddress,
 } from '../../hooks/Pickup/usePickupAddresses'
-import type { PickupFormValues } from '../../types/generic.types'
+import type { HydratedPickup, PickupFormValues } from '../../types/generic.types'
 import { glassStyles } from '../UI/accordion/FormSectionAccordion'
 import CustomIconLoadingButton from '../UI/button/CustomLoadingButton'
 import CustomCheckbox from '../UI/inputs/CustomCheckbox'
@@ -28,10 +28,12 @@ import PickupAddressSection from './PickupAddressSection'
 const AddPickupAddressForm = ({
   setDrawer,
   initialData,
+  onSaved,
 }: {
   setDrawer: (v: boolean) => void
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   initialData?: any
+  onSaved?: (address: HydratedPickup) => void
 }) => {
   const createPickupAddressMutation = useCreatePickupAddress()
   const updatePickupAddressMutation = useUpdatePickupAddress()
@@ -61,10 +63,12 @@ const AddPickupAddressForm = ({
       }
 
       if (isEdit && existingPickupId) {
-        await updatePickupAddressMutation.mutateAsync({ id: existingPickupId, payload })
+        const savedAddress = await updatePickupAddressMutation.mutateAsync({ id: existingPickupId, payload })
+        onSaved?.(savedAddress)
         toast.open({ message: 'Pickup address updated successfully', severity: 'success' })
       } else {
-        await createPickupAddressMutation.mutateAsync(payload)
+        const savedAddress = await createPickupAddressMutation.mutateAsync(payload)
+        onSaved?.(savedAddress)
         toast.open({ message: 'Pickup address saved successfully', severity: 'success' })
       }
 

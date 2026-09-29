@@ -11,7 +11,7 @@ export type CreatePickupAddressPayload = Omit<
 export const createPickupAddress = async (payload: CreatePickupAddressPayload) => {
   console.log('payload', payload)
   const response = await axiosInstance.post('/pickup-addresses', payload)
-  return response.data as HydratedPickup
+  return (response.data?.data ?? response.data) as HydratedPickup
 }
 
 // ✅ Enhance API util
