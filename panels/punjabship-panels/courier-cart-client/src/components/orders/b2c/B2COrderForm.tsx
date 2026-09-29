@@ -15,7 +15,6 @@ import { BiRupee } from 'react-icons/bi'
 import { FaBox, FaTruck, FaUser } from 'react-icons/fa'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { fetchAvailableCouriers } from '../../../api/courier'
-import { fetchLocations } from '../../../api/locations'
 import type { CreateShipmentParams } from '../../../api/order.service'
 import { useCreateShipment } from '../../../hooks/Orders/useOrders'
 import { usePaymentOptions } from '../../../hooks/usePaymentOptions'
@@ -511,23 +510,6 @@ export default function B2COrderFormSteps({ onClose }: { onClose?: () => void })
 
       const baseValid = await trigger(step1Fields)
       if (!baseValid) return false
-
-      const pincode = watch('pincode')
-
-      try {
-        const resp = await fetchLocations({ pincode })
-        const serviceable = Array.isArray(resp?.data) ? resp.data.length > 0 : !!resp?.data
-
-        if (!serviceable) {
-          methods.setError('pincode', {
-            type: 'manual',
-            message: 'Destination pincode not serviceable by any courier',
-          })
-          return false
-        }
-      } catch (error) {
-        console.log('error', error)
-      }
 
       return true
     }
