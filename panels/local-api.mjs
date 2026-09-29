@@ -803,7 +803,10 @@ const courierSupportsRoute = (courier, origin, destination, shipmentType, paymen
   if (!courier.isEnabled) return false
   if (shipmentType === 'b2b' ? !courier.supportsB2b : !courier.supportsB2c) return false
   if (paymentType === 'cod' ? !courier.supportsCod : !courier.supportsPrepaid) return false
-  if (weightKg < Number(courier.minWeightKg || 0) || weightKg > Number(courier.maxWeightKg || Infinity)) return false
+  // The courier minimum is a billing slab, not a serviceability cutoff. Orders
+  // below it (including a temporarily missing/zero UI weight) are quoted at the
+  // minimum chargeable weight by manualCourierQuote below.
+  if (weightKg > Number(courier.maxWeightKg || Infinity)) return false
   if (courier.pincodeScope === 'all_india') return Boolean(officeForPincode(origin) && officeForPincode(destination))
   const covered = new Set(normalizePincodes(courier.pincodes))
   return covered.has(String(origin)) && covered.has(String(destination))
@@ -1754,7 +1757,9 @@ http.createServer(async (req, res) => {
           booking_blocked_reason: configured ? null : 'ShipGlobal production credentials must be configured by the administrator.',
         },
       }
-      const includeShipGlobal = normalizeBusinessType(body.shipment_type) === 'b2c' && path !== '/api/couriers/b2b-rate-quotes'
+      // Do not offer sellers a courier that cannot be booked. Integration
+      // readiness remains visible to administrators through the status route.
+      const includeShipGlobal = configured && normalizeBusinessType(body.shipment_type) === 'b2c' && path !== '/api/couriers/b2b-rate-quotes'
       return send({ success: true, data: [...manualQuotes, ...(includeShipGlobal ? [courier] : [])] })
     }
     if (path === '/api/orders/check-order-number' && req.method === 'GET') {
