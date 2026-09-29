@@ -476,7 +476,7 @@ export default function B2COrderFormSteps({ onClose }: { onClose?: () => void })
       createShipmentMutation.mutate(payload, {
         onSuccess: () => {
           if (location.pathname === '/orders/create') {
-            navigate('/orders/list?status=pending')
+            navigate('/orders/list')
           }
         },
       })

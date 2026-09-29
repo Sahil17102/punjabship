@@ -36,11 +36,13 @@ export const useCreateShipment = (onClose?: () => void) => {
     },
 
     // 🔹 Success handling
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       toast.open({ message: 'Shipment created successfully', severity: 'success' })
       console.log('Shipment created successfully:', data)
-      queryClient.invalidateQueries({ queryKey: ['b2cOrdersByUser'] })
-      queryClient.invalidateQueries({ queryKey: ['orders'] })
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['b2cOrdersByUser'] }),
+        queryClient.invalidateQueries({ queryKey: ['orders'] }),
+      ])
       if (onClose) onClose() // ✅ Close modal/drawer after success
     },
   })
@@ -85,11 +87,13 @@ export const useCreateB2BShipment = (onClose?: () => void) => {
     },
 
     // 🔹 Success handling
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       toast.open({ message: 'B2B Shipment created successfully', severity: 'success' })
       console.log('B2B Shipment created successfully:', data)
-      queryClient.invalidateQueries({ queryKey: ['b2bOrdersByUser'] })
-      queryClient.invalidateQueries({ queryKey: ['orders'] })
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['b2bOrdersByUser'] }),
+        queryClient.invalidateQueries({ queryKey: ['orders'] }),
+      ])
       if (onClose) onClose() // ✅ Close modal/drawer after success
     },
   })
@@ -114,6 +118,8 @@ export const useB2COrdersByUser = (page: number, limit: number, filters: Filters
     queryFn: () => fetchB2COrdersByUser({ page, limit, ...filters }),
     placeholderData: (previousData) => previousData,
     staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
     refetchInterval: 5000,
     refetchIntervalInBackground: true,
   })
@@ -256,6 +262,8 @@ export const useAllOrders = (params: FetchOrdersParams) => {
     queryKey: ['orders', params], // cache key includes all params
     queryFn: () => fetchAllOrders(params), // fetch function
     staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
     refetchInterval: 5000,
     refetchIntervalInBackground: true,
   })
