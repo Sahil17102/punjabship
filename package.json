@@ -8,12 +8,14 @@
     "build": "vite build && node scripts/create-route-entries.mjs",
     "start": "node panels/local-api.mjs",
     "preview": "vite preview",
-    "test": "npm run test:shipglobal && npm run build && go test ./...",
+    "test": "npm run test:backend && npm run build && go test ./...",
+    "test:backend": "node --test panels/shipglobal.test.mjs panels/state-store.test.mjs",
     "test:shipglobal": "node --test panels/shipglobal.test.mjs"
   },
   "dependencies": {
     "india-pincode": "^2.5.9",
     "lucide-react": "^0.468.0",
+    "pg": "^8.23.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.1.1"

@@ -1,5 +1,4 @@
 import http from 'node:http'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { createRequire } from 'node:module'
 import {
@@ -9,6 +8,7 @@ import {
   mapShipGlobalTracking,
   validateShipGlobalOrder,
 } from './shipglobal.mjs'
+import { createStateStore } from './state-store.mjs'
 
 const require = createRequire(import.meta.url)
 const { loadData: loadIndiaPostData } = require('india-pincode')
@@ -217,7 +217,7 @@ const orders = Array.from({ length: 12 }, (_, i) => ({
 }))
 
 const defaultState = {
-  users: [demoUser, primarySeller], orders, pendingOtps: {}, pickupAddresses: {},
+  users: [demoUser, primarySeller], orders: [], pendingOtps: {}, pickupAddresses: {},
   paymentOptions: { codEnabled: true, prepaidEnabled: true, minWalletRecharge: 100, gstPercent: 18 },
   customServiceabilityLocations: [], serviceabilityOverrides: {}, deletedServiceabilityLocationIds: [],
   plans: [
@@ -237,7 +237,24 @@ const defaultState = {
   b2bZoneRates: defaultB2bZoneRates(),
   manualShipments: [], manualShipmentEvents: [], manualShipmentLegs: [],
 }
-const state = existsSync(dataFile) ? JSON.parse(readFileSync(dataFile, 'utf8')) : defaultState
+const stateStore = await createStateStore({
+  defaultState,
+  localFile: dataFile,
+  databaseUrl: process.env.DATABASE_URL,
+})
+const state = stateStore.state
+let stateNeedsSave = false
+
+// One-time clean baseline requested before durable order storage goes live.
+// The marker is stored with the state, so future restarts never clear new orders.
+if (Number(state.orderResetVersion || 0) < 1) {
+  state.orders = []
+  state.manualShipments = []
+  state.manualShipmentEvents = []
+  state.manualShipmentLegs = []
+  state.orderResetVersion = 1
+  stateNeedsSave = true
+}
 if (!Array.isArray(state.users)) state.users = state.user ? [state.user] : [demoUser]
 const existingPrimarySeller = state.users.find((item) => item.email === PRIMARY_SELLER_EMAIL)
 if (existingPrimarySeller) {
@@ -358,7 +375,12 @@ for (const seller of state.users) {
   }
 }
 
-const save = () => writeFileSync(dataFile, JSON.stringify(state, null, 2))
+const save = () => {
+  void stateStore.save(state).catch((error) => {
+    console.error('Unable to persist PunjabShip state.', error)
+  })
+}
+if (stateNeedsSave) await stateStore.save(state)
 const serviceabilityLocations = () => {
   const deleted = new Set(state.deletedServiceabilityLocationIds)
   const seeded = getSeededServiceabilityLocations()
@@ -1036,7 +1058,7 @@ http.createServer(async (req, res) => {
       : JSON.parse(raw)
     console.log(req.method, path)
 
-    if (path === '' || path === '/api/health') return send({ success: true, mode: 'punjabship-demo-api', integrations: { shipglobal: { configured: shipGlobal.isConfigured(), service: SHIPGLOBAL_SERVICE } } })
+    if (path === '' || path === '/api/health') return send({ success: true, mode: 'punjabship-demo-api', storage: stateStore.mode, integrations: { shipglobal: { configured: shipGlobal.isConfigured(), service: SHIPGLOBAL_SERVICE } } })
     if (path === '/api/auth/request-otp' && req.method === 'POST') {
       const email = String(body.email || '').trim().toLowerCase()
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return send({ error: 'Enter a valid email address.' }, 400)
