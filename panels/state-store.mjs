@@ -42,6 +42,16 @@ export const createStateStore = async ({ defaultState, localFile, databaseUrl = 
 
     if (result.rows[0]?.payload) {
       state = result.rows[0].payload
+    } else {
+      // Seed the durable store immediately. This prevents a fresh database
+      // connection from falling back to ephemeral disk again before the first
+      // user mutation occurs.
+      await pool.query(
+        `INSERT INTO punjabship_app_state (id, payload, updated_at)
+         VALUES ($1, $2::jsonb, NOW())
+         ON CONFLICT (id) DO NOTHING`,
+        ['primary', JSON.stringify(state)],
+      )
     }
   }
 
