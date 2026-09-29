@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "generate:pincodes": "node scripts/generate-pincode-chunks.mjs",
+    "prebuild": "npm run generate:pincodes",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"
@@ -24,6 +26,7 @@
     "date-fns": "^4.1.0",
     "driver.js": "^1.8.0",
     "file-saver": "^2.0.5",
+    "india-pincode": "^2.5.9",
     "leaflet": "^1.9.4",
     "lodash.debounce": "^4.0.8",
     "lottie-react": "^2.4.1",

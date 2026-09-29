@@ -19,6 +19,26 @@ export const normalizePincode = (value: unknown) =>
     .replace(/\D/g, '')
     .slice(0, 6)
 
+type PincodeChunk = Record<string, Omit<PincodeLocation, 'pincode'>>
+const pincodeChunkCache = new Map<string, Promise<PincodeChunk | null>>()
+
+const loadPincodeChunk = (prefix: string) => {
+  const cached = pincodeChunkCache.get(prefix)
+  if (cached) return cached
+
+  const request = fetch(`/pincodes/${prefix}.json`, { cache: 'force-cache' })
+    .then((response) => (response.ok ? response.json() as Promise<PincodeChunk> : null))
+    .catch(() => null)
+  pincodeChunkCache.set(prefix, request)
+  return request
+}
+
+const lookupViaStaticIndex = async (pincode: string): Promise<PincodeLocation | null> => {
+  const chunk = await loadPincodeChunk(pincode.slice(0, 2))
+  const location = chunk?.[pincode]
+  return location ? { pincode, ...location } : null
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const fetchLocations = async (params: any) => {
   const res = await axiosInstance.get(`/serviceability/locations`, { params })
@@ -67,6 +87,9 @@ export const lookupPincodeLocation = async (
 ): Promise<PincodeLocation | null> => {
   const pincode = normalizePincode(value)
   if (!/^\d{6}$/.test(pincode)) return null
+
+  const staticLocation = await lookupViaStaticIndex(pincode)
+  if (staticLocation) return staticLocation
 
   try {
     const serviceabilityLocation = await lookupViaServiceability(pincode)
