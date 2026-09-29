@@ -515,11 +515,11 @@ export default function B2BOrderForm({ onClose }: { onClose?: () => void }) {
 
           {currentStep === 1 && <PickupLocationForm />}
 
-          {currentStep === 2 && (
+          <Box sx={{ display: currentStep === 2 ? 'block' : 'none' }} aria-hidden={currentStep !== 2}>
             <FormSectionAccordion title="Courier Selection" icon={<FaTruck />} defaultExpanded compact>
               <SelectCourierForm shipment_type="b2b" />
             </FormSectionAccordion>
-          )}
+          </Box>
 
           <Box
             sx={{

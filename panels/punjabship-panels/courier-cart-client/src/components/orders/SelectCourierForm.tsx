@@ -201,7 +201,7 @@ export const SelectCourierForm = ({ shipment_type }: { shipment_type: 'b2b' | 'b
     courierPayload.height = height
   }
 
-  const { data: couriers, isLoading, isError, isFetching } = useAvailableCouriers(courierPayload)
+  const { data: couriers, isLoading, isError } = useAvailableCouriers(courierPayload)
   const availableCouriers = couriers ?? []
 
   const getCourierOptionKey = (courier: any) =>
@@ -262,7 +262,7 @@ export const SelectCourierForm = ({ shipment_type }: { shipment_type: 'b2b' | 'b
   if (!canFetchCouriers) {
     return <Typography>Fill pickup, delivery, package, and order value first to fetch couriers</Typography>
   }
-  if (isLoading || isFetching)
+  if (isLoading && !couriers)
     return (
       <Paper sx={{ p: 4, textAlign: 'center' }}>
         <CircularProgress color="primary" size={28} sx={{ mb: 2 }} />

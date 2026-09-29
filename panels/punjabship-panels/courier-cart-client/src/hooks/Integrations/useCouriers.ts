@@ -169,8 +169,8 @@ export const useAvailableCouriers = (params: UseAvailableCouriersParams) => {
         height,
       }),
     enabled: canFetchAvailableCouriers,
-    staleTime: isShipmentCourierSelection ? 0 : 1000 * 60 * 5,
-    refetchOnMount: isShipmentCourierSelection ? 'always' : true,
+    staleTime: 1000 * 60 * 5,
+    refetchOnMount: isShipmentCourierSelection ? false : true,
     retry: isShipmentCourierSelection ? 0 : 1,
   })
 }

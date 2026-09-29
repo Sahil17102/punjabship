@@ -1165,7 +1165,7 @@ export default function B2COrderFormSteps({ onClose }: { onClose?: () => void })
               </Stack>
             )}
 
-            {currentStep === 1 && (
+            <Box sx={{ display: currentStep === 1 ? 'block' : 'none' }} aria-hidden={currentStep !== 1}>
               <FormSectionAccordion title="Courier Selection" icon={<FaTruck />} defaultExpanded compact>
                 {errors.courierPartnerId && (
                   <Alert severity="error" sx={{ mb: 2 }}>
@@ -1176,7 +1176,7 @@ export default function B2COrderFormSteps({ onClose }: { onClose?: () => void })
 
                 {/* Error shown as Alert */}
               </FormSectionAccordion>
-            )}
+            </Box>
 
             {/* Sticky footer inside scroll */}
             <Box
