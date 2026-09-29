@@ -3,7 +3,7 @@ import { CircularProgress, Grid } from '@mui/material'
 import { useQuery } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { Controller, type FieldErrors, useFormContext } from 'react-hook-form'
-import { lookupPincodeLocation, normalizePincode, prefetchPincodePrefix } from '../../api/locations'
+import { lookupPincodeLocation, normalizePincode } from '../../api/locations'
 import CustomInput from '../UI/inputs/CustomInput'
 import type { B2BFormData } from './b2b/B2BOrderForm'
 import type { B2CFormData } from './b2c/B2COrderForm'
@@ -25,10 +25,6 @@ const DeliveryDetailsForm = ({ type = 'b2c' }: { type?: FormType }) => {
   const countryCode = String(watch('country') || 'IN').trim().toUpperCase()
   const isIndia = countryCode === 'IN'
   const normalizedPincode = isIndia ? normalizePincode(pincode) : pincode.trim().toUpperCase()
-
-  useEffect(() => {
-    if (isIndia) prefetchPincodePrefix(normalizedPincode)
-  }, [isIndia, normalizedPincode])
 
   const {
     data: location,

@@ -1,4 +1,5 @@
 import axiosInstance from './axiosInstance'
+import pincodeLocations from '../data/pincode-locations.json'
 
 export type ServiceabilityLocation = {
   pincode?: string
@@ -19,29 +20,11 @@ export const normalizePincode = (value: unknown) =>
     .replace(/\D/g, '')
     .slice(0, 6)
 
-type PincodeChunk = Record<string, Omit<PincodeLocation, 'pincode'>>
-const pincodeChunkCache = new Map<string, Promise<PincodeChunk | null>>()
-
-const loadPincodeChunk = (prefix: string) => {
-  const cached = pincodeChunkCache.get(prefix)
-  if (cached) return cached
-
-  const request = fetch(`/pincodes/${prefix}.json`, { cache: 'force-cache' })
-    .then((response) => (response.ok ? response.json() as Promise<PincodeChunk> : null))
-    .catch(() => null)
-  pincodeChunkCache.set(prefix, request)
-  return request
-}
-
-export const prefetchPincodePrefix = (value: unknown) => {
-  const digits = normalizePincode(value)
-  if (digits.length < 2) return
-  void loadPincodeChunk(digits.slice(0, 2))
-}
+type PincodeIndex = Record<string, Omit<PincodeLocation, 'pincode'>>
+const staticPincodeLocations = pincodeLocations as PincodeIndex
 
 const lookupViaStaticIndex = async (pincode: string): Promise<PincodeLocation | null> => {
-  const chunk = await loadPincodeChunk(pincode.slice(0, 2))
-  const location = chunk?.[pincode]
+  const location = staticPincodeLocations[pincode]
   return location ? { pincode, ...location } : null
 }
 

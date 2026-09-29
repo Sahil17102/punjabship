@@ -7,6 +7,7 @@ const require = createRequire(import.meta.url)
 const { loadData } = require('india-pincode')
 const scriptDirectory = dirname(fileURLToPath(import.meta.url))
 const outputDirectory = resolve(scriptDirectory, '../public/pincodes')
+const embeddedIndexFile = resolve(scriptDirectory, '../src/data/pincode-locations.json')
 const officeRank = { HO: 3, SO: 2, PO: 2, BO: 1 }
 
 const bestOfficeByPincode = new Map()
@@ -24,6 +25,7 @@ for (const office of loadData()) {
 }
 
 const chunks = new Map()
+const embeddedIndex = {}
 for (const [pincode, office] of bestOfficeByPincode) {
   const prefix = pincode.slice(0, 2)
   const chunk = chunks.get(prefix) || {}
@@ -32,6 +34,7 @@ for (const [pincode, office] of bestOfficeByPincode) {
     state: office.state,
     country: 'India',
   }
+  embeddedIndex[pincode] = chunk[pincode]
   chunks.set(prefix, chunk)
 }
 
@@ -42,5 +45,7 @@ for (const file of await readdir(outputDirectory)) {
 await Promise.all([...chunks].map(([prefix, rows]) =>
   writeFile(resolve(outputDirectory, `${prefix}.json`), JSON.stringify(rows)),
 ))
+await mkdir(dirname(embeddedIndexFile), { recursive: true })
+await writeFile(embeddedIndexFile, JSON.stringify(embeddedIndex))
 
 console.log(`Generated ${chunks.size} pincode chunks with ${bestOfficeByPincode.size} delivery pincodes.`)
