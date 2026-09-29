@@ -674,7 +674,7 @@ const OrdersTable = ({
         columnWidths={{
           type: '72px',
           order_number: '160px',
-          awb_number: '180px',
+          awb_number: '230px',
           merchantName: '180px',
           buyer_name: '200px',
           order_status: '150px',

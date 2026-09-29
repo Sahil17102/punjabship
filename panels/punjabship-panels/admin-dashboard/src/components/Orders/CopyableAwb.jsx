@@ -26,13 +26,23 @@ export default function CopyableAwb({ awb, showTrack = true }) {
   }
 
   return (
-    <HStack spacing={1.5} align="center">
+    <HStack
+      spacing={1}
+      align="center"
+      flexWrap="nowrap"
+      minW="max-content"
+      maxW="none !important"
+      whiteSpace="nowrap"
+      sx={{ '&, & *': { whiteSpace: 'nowrap !important', overflowWrap: 'normal !important' } }}
+    >
       <Button
         size="xs"
         variant="link"
         colorScheme="brand"
         fontFamily="mono"
         fontWeight="800"
+        flexShrink={0}
+        minW={0}
         onClick={(event) => {
           event.stopPropagation()
           openAdminTrackingTab(normalized)
@@ -41,7 +51,16 @@ export default function CopyableAwb({ awb, showTrack = true }) {
         {normalized}
       </Button>
       <Tooltip label="Copy AWB">
-        <IconButton aria-label="Copy AWB" icon={<FiCopy />} size="xs" variant="ghost" onClick={copyAwb} />
+        <IconButton
+          aria-label="Copy AWB"
+          icon={<FiCopy />}
+          size="xs"
+          variant="ghost"
+          flex="0 0 28px"
+          minW="28px"
+          w="28px"
+          onClick={copyAwb}
+        />
       </Tooltip>
       {showTrack && (
         <Tooltip label="Open tracking in new tab">
@@ -50,6 +69,9 @@ export default function CopyableAwb({ awb, showTrack = true }) {
             icon={<FiExternalLink />}
             size="xs"
             variant="ghost"
+            flex="0 0 28px"
+            minW="28px"
+            w="28px"
             onClick={(event) => {
               event.stopPropagation()
               openAdminTrackingTab(normalized)
