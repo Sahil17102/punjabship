@@ -1,4 +1,12 @@
 import { Box, Button, LinearProgress, Stack, Typography } from '@mui/material'
+import { keyframes } from '@emotion/react'
+import { FaceDetection, type Results as FaceDetectionResults } from '@mediapipe/face_detection'
+import faceDetectionShortBinaryUrl from '@mediapipe/face_detection/face_detection_short.binarypb?url'
+import faceDetectionShortModelUrl from '@mediapipe/face_detection/face_detection_short_range.tflite?url'
+import faceDetectionSimdJsUrl from '@mediapipe/face_detection/face_detection_solution_simd_wasm_bin.js?url'
+import faceDetectionSimdWasmUrl from '@mediapipe/face_detection/face_detection_solution_simd_wasm_bin.wasm?url'
+import faceDetectionJsUrl from '@mediapipe/face_detection/face_detection_solution_wasm_bin.js?url'
+import faceDetectionWasmUrl from '@mediapipe/face_detection/face_detection_solution_wasm_bin.wasm?url'
 import React, { useEffect, useRef, useState } from 'react'
 import { FiCamera, FiRefreshCw, FiUpload } from 'react-icons/fi'
 import { uploadAuthenticatedFile, uploadEmbeddedShopifyFile } from '../../../../api/upload.api'
@@ -11,6 +19,35 @@ interface SelfieCaptureProps {
   error?: string
 }
 
+type FaceScanStatus = 'idle' | 'loading' | 'searching' | 'multiple' | 'position' | 'distance' | 'hold' | 'ready' | 'error'
+
+const faceDetectionAssets: Record<string, string> = {
+  'face_detection_short.binarypb': faceDetectionShortBinaryUrl,
+  'face_detection_short_range.tflite': faceDetectionShortModelUrl,
+  'face_detection_solution_simd_wasm_bin.js': faceDetectionSimdJsUrl,
+  'face_detection_solution_simd_wasm_bin.wasm': faceDetectionSimdWasmUrl,
+  'face_detection_solution_wasm_bin.js': faceDetectionJsUrl,
+  'face_detection_solution_wasm_bin.wasm': faceDetectionWasmUrl,
+}
+
+const scanSweep = keyframes`
+  0% { transform: translateY(0); opacity: 0.35; }
+  50% { opacity: 1; }
+  100% { transform: translateY(230px); opacity: 0.35; }
+`
+
+const scanMessages: Record<FaceScanStatus, string> = {
+  idle: 'Start the camera to scan your face.',
+  loading: 'Loading secure face scanner...',
+  searching: 'Place one face inside the oval.',
+  multiple: 'Only one person should be visible.',
+  position: 'Center your face inside the oval.',
+  distance: 'Move slightly closer to the camera.',
+  hold: 'Face detected. Hold still...',
+  ready: 'Face scan complete. You can capture now.',
+  error: 'Face scanner could not start. Close the camera and try again.',
+}
+
 const SelfieCapture: React.FC<SelfieCaptureProps> = ({ value, onChange, error }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -20,15 +57,18 @@ const SelfieCapture: React.FC<SelfieCaptureProps> = ({ value, onChange, error })
   const [cameraOpen, setCameraOpen] = useState(false)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [validatingPhoto, setValidatingPhoto] = useState(false)
   const [progress, setProgress] = useState(0)
   const [cameraError, setCameraError] = useState('')
   const [cameraReady, setCameraReady] = useState(false)
+  const [faceScanStatus, setFaceScanStatus] = useState<FaceScanStatus>('idle')
 
   const stopCamera = () => {
     streamRef.current?.getTracks().forEach((track) => track.stop())
     streamRef.current = null
     if (videoRef.current) videoRef.current.srcObject = null
     setCameraReady(false)
+    setFaceScanStatus('idle')
     setCameraOpen(false)
   }
 
@@ -71,6 +111,80 @@ const SelfieCapture: React.FC<SelfieCaptureProps> = ({ value, onChange, error })
     }
   }, [cameraOpen])
 
+  useEffect(() => {
+    if (!cameraOpen || !cameraReady || !videoRef.current) return
+
+    const video = videoRef.current
+    let cancelled = false
+    let scanTimer: number | undefined
+    let stableFrames = 0
+    const detector = new FaceDetection({
+      locateFile: (file) => faceDetectionAssets[file] || file,
+    })
+
+    const evaluateFace = (results: FaceDetectionResults) => {
+      if (cancelled) return
+      const detections = results.detections || []
+      if (detections.length === 0) {
+        stableFrames = 0
+        setFaceScanStatus('searching')
+        return
+      }
+      if (detections.length !== 1) {
+        stableFrames = 0
+        setFaceScanStatus('multiple')
+        return
+      }
+
+      const face = detections[0]
+      const { xCenter, yCenter, width, height } = face.boundingBox
+      const hasFaceLandmarks = face.landmarks.length >= 4
+      const centered = xCenter >= 0.32 && xCenter <= 0.68 && yCenter >= 0.3 && yCenter <= 0.68
+      const closeEnough = width >= 0.22 && height >= 0.28
+
+      if (!hasFaceLandmarks || !centered) {
+        stableFrames = 0
+        setFaceScanStatus('position')
+      } else if (!closeEnough) {
+        stableFrames = 0
+        setFaceScanStatus('distance')
+      } else {
+        stableFrames += 1
+        setFaceScanStatus(stableFrames >= 3 ? 'ready' : 'hold')
+      }
+    }
+
+    const runScan = async () => {
+      if (cancelled) return
+      try {
+        if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+          await detector.send({ image: video })
+        }
+        if (!cancelled) scanTimer = window.setTimeout(runScan, 250)
+      } catch {
+        if (!cancelled) setFaceScanStatus('error')
+      }
+    }
+
+    setFaceScanStatus('loading')
+    detector.setOptions({ selfieMode: true, model: 'short', minDetectionConfidence: 0.75 })
+    detector.onResults(evaluateFace)
+    void detector.initialize()
+      .then(() => {
+        if (!cancelled) void runScan()
+      })
+      .catch(() => {
+        if (!cancelled) setFaceScanStatus('error')
+      })
+
+    return () => {
+      cancelled = true
+      if (scanTimer) window.clearTimeout(scanTimer)
+      detector.onResults(() => undefined)
+      void detector.close().catch(() => undefined)
+    }
+  }, [cameraOpen, cameraReady])
+
   const uploadSelfie = async (file: File) => {
     setUploading(true)
     setProgress(0)
@@ -93,9 +207,42 @@ const SelfieCapture: React.FC<SelfieCaptureProps> = ({ value, onChange, error })
     }
   }
 
+  const validateSelectedFacePhoto = async (file: File) => {
+    const objectUrl = URL.createObjectURL(file)
+    const image = new Image()
+    const detector = new FaceDetection({
+      locateFile: (asset) => faceDetectionAssets[asset] || asset,
+    })
+    let detectedFaces: FaceDetectionResults['detections'] = []
+
+    try {
+      image.src = objectUrl
+      await image.decode()
+      detector.setOptions({ selfieMode: true, model: 'short', minDetectionConfidence: 0.75 })
+      detector.onResults((results) => {
+        detectedFaces = results.detections || []
+      })
+      await detector.initialize()
+      await detector.send({ image })
+
+      if (detectedFaces.length !== 1) return false
+      const face = detectedFaces[0]
+      const { xCenter, yCenter, width, height } = face.boundingBox
+      return face.landmarks.length >= 4
+        && xCenter >= 0.2 && xCenter <= 0.8
+        && yCenter >= 0.2 && yCenter <= 0.8
+        && width >= 0.16 && height >= 0.2
+    } finally {
+      URL.revokeObjectURL(objectUrl)
+      detector.onResults(() => undefined)
+      await detector.close().catch(() => undefined)
+    }
+  }
+
   const openCamera = async () => {
     setCameraError('')
     setCameraReady(false)
+    setFaceScanStatus('loading')
     if (!navigator.mediaDevices?.getUserMedia) {
       setCameraError('Camera is not available in this browser. Use the phone camera option instead.')
       return
@@ -138,7 +285,7 @@ const SelfieCapture: React.FC<SelfieCaptureProps> = ({ value, onChange, error })
     }, 'image/jpeg', 0.9)
   }
 
-  const useSelectedPhoto = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const useSelectedPhoto = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     event.target.value = ''
     if (!file) return
@@ -146,7 +293,19 @@ const SelfieCapture: React.FC<SelfieCaptureProps> = ({ value, onChange, error })
       toast.open({ message: 'Please select a face photo in JPG or PNG format.', severity: 'error' })
       return
     }
-    void uploadSelfie(file)
+    setValidatingPhoto(true)
+    try {
+      const hasClearFace = await validateSelectedFacePhoto(file)
+      if (!hasClearFace) {
+        toast.open({ message: 'Upload rejected. Use one clear, centered face photo.', severity: 'error' })
+        return
+      }
+      await uploadSelfie(file)
+    } catch {
+      toast.open({ message: 'Could not scan this photo. Please take a new face photo.', severity: 'error' })
+    } finally {
+      setValidatingPhoto(false)
+    }
   }
 
   return (
@@ -160,10 +319,20 @@ const SelfieCapture: React.FC<SelfieCaptureProps> = ({ value, onChange, error })
 
       {cameraOpen ? (
         <Stack spacing={1.5} alignItems="center">
-          <Box component="video" ref={videoRef} autoPlay muted playsInline sx={{ width: '100%', maxWidth: 520, bgcolor: '#111827', transform: 'scaleX(-1)', aspectRatio: '4 / 3', objectFit: 'cover' }} />
+          <Box sx={{ position: 'relative', width: '100%', maxWidth: 520, overflow: 'hidden', bgcolor: '#111827', aspectRatio: '4 / 3' }}>
+            <Box component="video" ref={videoRef} autoPlay muted playsInline sx={{ width: '100%', height: '100%', transform: 'scaleX(-1)', objectFit: 'cover' }} />
+            <Box sx={{ position: 'absolute', inset: '8% 23%', border: `3px solid ${faceScanStatus === 'ready' ? '#22C55E' : '#F8FAFC'}`, borderRadius: '50%', boxShadow: '0 0 0 999px rgba(15, 23, 42, 0.28)', pointerEvents: 'none', overflow: 'hidden' }}>
+              {faceScanStatus !== 'ready' && (
+                <Box sx={{ position: 'absolute', left: '8%', right: '8%', top: 0, height: 2, bgcolor: '#38BDF8', boxShadow: '0 0 12px #38BDF8', animation: `${scanSweep} 2s ease-in-out infinite` }} />
+              )}
+            </Box>
+          </Box>
+          <Typography fontSize={13} fontWeight={800} color={faceScanStatus === 'ready' ? 'success.main' : faceScanStatus === 'error' ? 'error.main' : '#334155'}>
+            {scanMessages[faceScanStatus]}
+          </Typography>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-            <Button variant="contained" startIcon={<FiCamera />} onClick={captureSelfie} disabled={!cameraReady || uploading}>
-              {cameraReady ? 'Capture selfie' : 'Starting camera...'}
+            <Button variant="contained" startIcon={<FiCamera />} onClick={captureSelfie} disabled={!cameraReady || faceScanStatus !== 'ready' || uploading}>
+              {faceScanStatus === 'ready' ? 'Capture selfie' : 'Scan face first'}
             </Button>
             <Button variant="outlined" onClick={stopCamera}>Cancel</Button>
           </Stack>
@@ -176,11 +345,11 @@ const SelfieCapture: React.FC<SelfieCaptureProps> = ({ value, onChange, error })
             <Typography fontSize={13} fontWeight={700} color="success.main">Selfie uploaded. You can capture a new one to replace it.</Typography>
           ) : null}
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-            <Button variant="contained" startIcon={value ? <FiRefreshCw /> : <FiCamera />} onClick={openCamera} disabled={uploading}>
+            <Button variant="contained" startIcon={value ? <FiRefreshCw /> : <FiCamera />} onClick={openCamera} disabled={uploading || validatingPhoto}>
               {value ? 'Retake with camera' : 'Open camera'}
             </Button>
-            <Button variant="outlined" startIcon={<FiUpload />} onClick={() => inputRef.current?.click()} disabled={uploading}>
-              Use phone camera / upload
+            <Button variant="outlined" startIcon={<FiUpload />} onClick={() => inputRef.current?.click()} disabled={uploading || validatingPhoto}>
+              {validatingPhoto ? 'Scanning face...' : 'Use phone camera / upload'}
             </Button>
           </Stack>
         </Stack>
@@ -188,6 +357,7 @@ const SelfieCapture: React.FC<SelfieCaptureProps> = ({ value, onChange, error })
 
       <input ref={inputRef} type="file" accept="image/jpeg,image/png" capture="user" hidden onChange={useSelectedPhoto} />
       <canvas ref={canvasRef} hidden />
+      {validatingPhoto && <LinearProgress sx={{ mt: 2, width: '100%' }} />}
       {uploading && <LinearProgress variant="determinate" value={progress} sx={{ mt: 2, width: '100%' }} />}
       {(cameraError || error) && <Typography fontSize={12} color="error" mt={1}>{cameraError || error}</Typography>}
     </Box>
