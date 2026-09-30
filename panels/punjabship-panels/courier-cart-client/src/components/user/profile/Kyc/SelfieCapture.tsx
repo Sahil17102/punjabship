@@ -22,11 +22,13 @@ const SelfieCapture: React.FC<SelfieCaptureProps> = ({ value, onChange, error })
   const [uploading, setUploading] = useState(false)
   const [progress, setProgress] = useState(0)
   const [cameraError, setCameraError] = useState('')
+  const [cameraReady, setCameraReady] = useState(false)
 
   const stopCamera = () => {
     streamRef.current?.getTracks().forEach((track) => track.stop())
     streamRef.current = null
     if (videoRef.current) videoRef.current.srcObject = null
+    setCameraReady(false)
     setCameraOpen(false)
   }
 
@@ -40,6 +42,34 @@ const SelfieCapture: React.FC<SelfieCaptureProps> = ({ value, onChange, error })
     streamRef.current?.getTracks().forEach((track) => track.stop())
     if (previewObjectUrlRef.current) URL.revokeObjectURL(previewObjectUrlRef.current)
   }, [])
+
+  useEffect(() => {
+    if (!cameraOpen) return
+
+    const video = videoRef.current
+    const stream = streamRef.current
+    if (!video || !stream) return
+
+    const markReady = () => {
+      if (!video.videoWidth || !video.videoHeight) return
+      setCameraReady(true)
+      setCameraError('')
+    }
+    const handlePlaybackError = () => {
+      setCameraReady(false)
+      setCameraError('Camera preview could not start. Close the camera and try again.')
+    }
+
+    video.srcObject = stream
+    video.addEventListener('loadedmetadata', markReady)
+    video.addEventListener('canplay', markReady)
+    void video.play().then(markReady).catch(handlePlaybackError)
+
+    return () => {
+      video.removeEventListener('loadedmetadata', markReady)
+      video.removeEventListener('canplay', markReady)
+    }
+  }, [cameraOpen])
 
   const uploadSelfie = async (file: File) => {
     setUploading(true)
@@ -65,6 +95,7 @@ const SelfieCapture: React.FC<SelfieCaptureProps> = ({ value, onChange, error })
 
   const openCamera = async () => {
     setCameraError('')
+    setCameraReady(false)
     if (!navigator.mediaDevices?.getUserMedia) {
       setCameraError('Camera is not available in this browser. Use the phone camera option instead.')
       return
@@ -76,11 +107,6 @@ const SelfieCapture: React.FC<SelfieCaptureProps> = ({ value, onChange, error })
       })
       streamRef.current = stream
       setCameraOpen(true)
-      window.setTimeout(() => {
-        if (!videoRef.current) return
-        videoRef.current.srcObject = stream
-        void videoRef.current.play()
-      }, 0)
     } catch {
       setCameraError('Camera access was blocked or unavailable. Allow camera permission and try again.')
     }
@@ -134,9 +160,11 @@ const SelfieCapture: React.FC<SelfieCaptureProps> = ({ value, onChange, error })
 
       {cameraOpen ? (
         <Stack spacing={1.5} alignItems="center">
-          <Box component="video" ref={videoRef} muted playsInline sx={{ width: '100%', maxWidth: 520, bgcolor: '#111827', transform: 'scaleX(-1)', aspectRatio: '4 / 3', objectFit: 'cover' }} />
+          <Box component="video" ref={videoRef} autoPlay muted playsInline sx={{ width: '100%', maxWidth: 520, bgcolor: '#111827', transform: 'scaleX(-1)', aspectRatio: '4 / 3', objectFit: 'cover' }} />
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-            <Button variant="contained" startIcon={<FiCamera />} onClick={captureSelfie}>Capture selfie</Button>
+            <Button variant="contained" startIcon={<FiCamera />} onClick={captureSelfie} disabled={!cameraReady || uploading}>
+              {cameraReady ? 'Capture selfie' : 'Starting camera...'}
+            </Button>
             <Button variant="outlined" onClick={stopCamera}>Cancel</Button>
           </Stack>
         </Stack>
