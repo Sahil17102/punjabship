@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { io } from 'socket.io-client'
 import { useAuthStore } from 'store/useAuthStore'
 import { useNotificationsStore } from 'store/useNotificationsStore'
+import { adminSocketUrl } from 'services/runtimeUrls'
 
 export const useSocket = () => {
   const { userId } = useAuthStore()
@@ -10,7 +11,7 @@ export const useSocket = () => {
   useEffect(() => {
     if (!userId) return
 
-    const socket = io(process.env.REACT_APP_SOCKET_URL || 'http://127.0.0.1:5004', { autoConnect: false })
+    const socket = io(adminSocketUrl, { autoConnect: false })
 
     socket.emit('register', userId)
 

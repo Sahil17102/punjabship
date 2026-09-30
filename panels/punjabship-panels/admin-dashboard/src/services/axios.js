@@ -1,12 +1,8 @@
 import axios from 'axios'
-
-const configuredApiBaseURL = process.env.REACT_APP_API_BASE_URL || ''
-const apiBaseURL = configuredApiBaseURL.includes('punjabship-logisticbackend.onrender.com')
-  ? 'https://punjabship2.onrender.com/api'
-  : configuredApiBaseURL || 'http://127.0.0.1:5004/api'
+import { adminApiBaseUrl } from './runtimeUrls'
 
 const api = axios.create({
-  baseURL: apiBaseURL,
+  baseURL: adminApiBaseUrl,
   withCredentials: true, // only if using cookies
 })
 
@@ -40,7 +36,7 @@ api.interceptors.response.use(
         if (!refreshPromise) {
           refreshPromise = axios
             .post(
-              `${apiBaseURL}/auth/refresh-token`,
+              `${adminApiBaseUrl}/auth/refresh-token`,
               { refreshToken },
               {
                 headers: {
