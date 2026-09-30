@@ -194,7 +194,7 @@ const createSeller = (email, overrides = {}) => {
     currentPlanId: null,
     currentB2CPlanName: null,
     currentB2BPlanName: null,
-    walletBalance: 5000,
+    walletBalance: 0,
     createdAt: now,
     updatedAt: now,
     ...overrides,
@@ -356,6 +356,17 @@ state.deletedServiceabilityLocationIds ??= []
 state.plans ??= defaultState.plans
 state.preferences ??= defaultState.preferences
 state.walletTransactions ??= []
+
+// Reset the historical seeded balance once. The marker keeps genuine future
+// wallet adjustments intact across restarts.
+if (Number(state.walletResetVersion || 0) < 1) {
+  for (const seller of state.users) seller.walletBalance = 0
+  state.walletTransactions = state.walletTransactions.filter((transaction) => (
+    transaction.reason !== 'opening_balance' && !String(transaction.id || '').startsWith('wallet-opening-')
+  ))
+  state.walletResetVersion = 1
+  stateNeedsSave = true
+}
 state.manualCouriers ??= []
 state.zones ??= []
 state.shippingRates ??= []
@@ -383,22 +394,22 @@ for (const seller of state.users) {
 
 for (const seller of state.users) {
   if (
-    Number(seller.walletBalance ?? 5000) !== 0 &&
+    Number(seller.walletBalance ?? 0) !== 0 &&
     !state.walletTransactions.some((transaction) => transaction.user_id === seller.id)
   ) {
     state.walletTransactions.push({
       id: `wallet-opening-${seller.id}`,
       wallet_id: `wallet-${seller.id}`,
       user_id: seller.id,
-      amount: Math.abs(Number(seller.walletBalance ?? 5000)),
-      type: Number(seller.walletBalance ?? 5000) >= 0 ? 'credit' : 'debit',
+      amount: Math.abs(Number(seller.walletBalance ?? 0)),
+      type: Number(seller.walletBalance ?? 0) >= 0 ? 'credit' : 'debit',
       reason: 'opening_balance',
       category: 'wallet_recharge',
       ref: `OPENING-${seller.id}`,
       meta: { source: 'PunjabShip', notes: 'Opening wallet balance' },
       currency: 'INR',
       created_at: seller.createdAt || new Date().toISOString(),
-      balance_after: Number(seller.walletBalance ?? 5000),
+      balance_after: Number(seller.walletBalance ?? 0),
     })
   }
 }
@@ -438,7 +449,7 @@ const authPayload = (seller) => {
   return { success: true, message: 'Login successful', token: accessToken, accessToken, refreshToken: accessToken, user: seller }
 }
 
-const walletBalanceOf = (seller) => Number(seller?.walletBalance ?? 5000)
+const walletBalanceOf = (seller) => Number(seller?.walletBalance ?? 0)
 const walletIdOf = (seller) => `wallet-${seller.id}`
 const walletCategoryOf = (transaction) => transaction.category || (
   String(transaction.reason || '').includes('recharge') || String(transaction.reason || '').includes('opening')
@@ -718,7 +729,7 @@ const applyOnboarding = (seller, step, data) => {
 }
 
 const merchantReadiness = (seller) => {
-  const walletBalance = Number(seller?.walletBalance ?? 5000)
+  const walletBalance = Number(seller?.walletBalance ?? 0)
   const requiredWalletBalance = 100
   const hasAssignedPlan = Boolean(seller?.currentPlanId || seller?.currentB2CPlanId || seller?.currentB2BPlanId)
   const hasPickupAddress = Boolean(state.pickupAddresses[seller?.id]?.length)
@@ -2212,7 +2223,7 @@ http.createServer(async (req, res) => {
     if (/\/kpis$|cod-remittance\/stats$|payable-report$/.test(path)) return send({ success: true, data: {} })
     if (path.includes('/cod-remittance/remittances')) return send({ success: true, data: { remittances: [], total: 0 } })
     if (req.method !== 'GET') return send({ success: false, error: 'This action needs a connected production backend.', message: 'This action needs a connected production backend.' }, 501)
-    return send({ success: true, data: [], orders: [], pickups: [], destinations: [], distribution: [], transactions: [], tickets: [], couriers: [], warehouses: [], addresses: [], items: [], total: 0, totalCount: 0, totalPages: 1, page: 1, statusCounts: {}, balance: 5000 })
+    return send({ success: true, data: [], orders: [], pickups: [], destinations: [], distribution: [], transactions: [], tickets: [], couriers: [], warehouses: [], addresses: [], items: [], total: 0, totalCount: 0, totalPages: 1, page: 1, statusCounts: {}, balance: 0 })
   } catch (error) {
     console.error(error)
     send({ success: false, error: error.message, message: error.message }, Number(error.statusCode || 500))
