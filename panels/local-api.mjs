@@ -1,5 +1,5 @@
 import http from 'node:http'
-import { randomUUID } from 'node:crypto'
+import { randomBytes, randomInt, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto'
 import { createRequire } from 'node:module'
 import {
   createShipGlobalClient,
@@ -9,6 +9,7 @@ import {
   validateShipGlobalOrder,
 } from './shipglobal.mjs'
 import { createStateStore } from './state-store.mjs'
+import { isMailConfigured, mailStatus, sendOtpEmail, sendPasswordResetEmail } from './mailer.mjs'
 
 const require = createRequire(import.meta.url)
 const { loadData: loadIndiaPostData } = require('india-pincode')
@@ -24,6 +25,19 @@ const SERVICEABILITY_SEED_SIZE = 27000
 const SHIPGLOBAL_SERVICE = process.env.SHIPGLOBAL_SERVICE || 'Shipglobal Direct'
 const SHIPGLOBAL_CURRENCY = process.env.SHIPGLOBAL_CURRENCY || 'INR'
 const shipGlobal = createShipGlobalClient()
+const otpRequestAttempts = new Map()
+
+const hashPassword = (password) => {
+  const salt = randomBytes(16).toString('hex')
+  return `${salt}:${scryptSync(password, salt, 64).toString('hex')}`
+}
+const passwordMatches = (password, encoded) => {
+  if (!encoded?.includes(':')) return false
+  const [salt, expectedHex] = encoded.split(':')
+  const expected = Buffer.from(expectedHex, 'hex')
+  const actual = scryptSync(password, salt, expected.length)
+  return expected.length === actual.length && timingSafeEqual(expected, actual)
+}
 
 const DEFAULT_MANUAL_COURIER_ID = 91001
 const DEFAULT_B2C_ZONES = [
@@ -276,6 +290,8 @@ if (existingPrimarySeller) {
 }
 state.orders ??= orders
 state.pendingOtps ??= {}
+state.passwordResetOtps ??= {}
+state.passwordResetTokens ??= {}
 state.pickupAddresses ??= {}
 state.paymentOptions = {
   codEnabled: state.paymentOptions?.codEnabled ?? true,
@@ -657,6 +673,8 @@ const allowedOrigin = (origin) => {
   if (!origin) return '*'
   if (/^http:\/\/(localhost|127\.0\.0\.1):(5174|3001)$/.test(origin)) return origin
   if (/^https:\/\/punjabship(client1|admin)?\.onrender\.com$/.test(origin)) return origin
+  if (/^https:\/\/(www\.)?punjabship\.com$/.test(origin)) return origin
+  if (/^https:\/\/admin\.punjabship\.com$/.test(origin)) return origin
   return ''
 }
 
@@ -1057,13 +1075,28 @@ http.createServer(async (req, res) => {
       : JSON.parse(raw)
     console.log(req.method, path)
 
-    if (path === '' || path === '/api/health') return send({ success: true, mode: 'punjabship-demo-api', storage: stateStore.mode, integrations: { shipglobal: { configured: shipGlobal.isConfigured(), service: SHIPGLOBAL_SERVICE } } })
+    if (path === '' || path === '/api/health') return send({ success: true, mode: 'punjabship-demo-api', storage: stateStore.mode, integrations: { shipglobal: { configured: shipGlobal.isConfigured(), service: SHIPGLOBAL_SERVICE }, email: mailStatus() } })
     if (path === '/api/auth/request-otp' && req.method === 'POST') {
       const email = String(body.email || '').trim().toLowerCase()
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return send({ error: 'Enter a valid email address.' }, 400)
-      state.pendingOtps[email] = { otp: DEMO_OTP, expiresAt: Date.now() + 10 * 60 * 1000 }
+      const now = Date.now()
+      const pending = state.pendingOtps[email]
+      if (pending?.requestedAt && pending.requestedAt > now - 60 * 1000) {
+        return send({ error: 'Please wait one minute before requesting another code.' }, 429)
+      }
+      const requester = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim()
+      const recentAttempts = (otpRequestAttempts.get(requester) || []).filter((time) => time > now - 10 * 60 * 1000)
+      if (recentAttempts.length >= 5) return send({ error: 'Too many verification codes requested. Please try again later.' }, 429)
+      const otp = isMailConfigured() ? String(randomInt(100000, 1000000)) : DEMO_OTP
+      if (isMailConfigured()) await sendOtpEmail({ to: email, otp, expiresMinutes: 10 })
+      otpRequestAttempts.set(requester, [...recentAttempts, now])
+      state.pendingOtps[email] = { otp, requestedAt: now, expiresAt: now + 10 * 60 * 1000 }
       save()
-      return send({ message: 'Verification code generated.', demoOtp: DEMO_OTP, demoOtpExpiresAt: new Date(state.pendingOtps[email].expiresAt).toISOString() })
+      return send({
+        message: isMailConfigured() ? 'Verification code sent to your email.' : 'Verification code generated.',
+        ...(isMailConfigured() ? {} : { demoOtp: otp }),
+        expiresAt: new Date(state.pendingOtps[email].expiresAt).toISOString(),
+      })
     }
     if (path === '/api/auth/verify-otp' && req.method === 'POST') {
       const email = String(body.email || '').trim().toLowerCase()
@@ -1078,8 +1111,54 @@ http.createServer(async (req, res) => {
     }
     if (path === '/api/auth/request-password-login' && req.method === 'POST') {
       const email = String(body.email || '').trim().toLowerCase()
-      if (email !== CLIENT_EMAIL || body.password !== CLIENT_PASSWORD) return send({ error: `Use the demo credentials: ${CLIENT_EMAIL} / ${CLIENT_PASSWORD}` }, 401)
-      return send(authPayload(state.users.find((item) => item.email === CLIENT_EMAIL) || demoUser))
+      const seller = state.users.find((item) => item.email === email)
+      const validPassword = seller?.passwordHash
+        ? passwordMatches(String(body.password || ''), seller.passwordHash)
+        : email === CLIENT_EMAIL && body.password === CLIENT_PASSWORD
+      if (!seller || !validPassword) return send({ error: 'Invalid email or password.' }, 401)
+      return send(authPayload(seller))
+    }
+    if (path === '/api/auth/forgot-password/request' && req.method === 'POST') {
+      const email = String(body.email || '').trim().toLowerCase()
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return send({ error: 'Enter a valid email address.' }, 400)
+      const seller = state.users.find((item) => item.email === email)
+      if (seller) {
+        const otp = isMailConfigured() ? String(randomInt(100000, 1000000)) : DEMO_OTP
+        if (isMailConfigured()) await sendPasswordResetEmail({ to: email, otp, expiresMinutes: 10 })
+        state.passwordResetOtps[email] = { otp, expiresAt: Date.now() + 10 * 60 * 1000 }
+        save()
+      }
+      return send({ message: 'If that account exists, a password reset code has been sent.' })
+    }
+    if (path === '/api/auth/forgot-password/verify' && req.method === 'POST') {
+      const email = String(body.email || '').trim().toLowerCase()
+      const pending = state.passwordResetOtps[email]
+      if (!pending || pending.expiresAt < Date.now() || String(body.otp || '') !== String(pending.otp)) {
+        return send({ error: 'That reset code is invalid or expired.' }, 401)
+      }
+      const resetToken = randomBytes(32).toString('hex')
+      state.passwordResetTokens[email] = { token: resetToken, expiresAt: Date.now() + 10 * 60 * 1000 }
+      delete state.passwordResetOtps[email]
+      save()
+      return send({ message: 'Reset code verified.', resetToken })
+    }
+    if (path === '/api/auth/forgot-password/reset' && req.method === 'POST') {
+      const email = String(body.email || '').trim().toLowerCase()
+      const pending = state.passwordResetTokens[email]
+      const password = String(body.newPassword || '')
+      if (!pending || pending.expiresAt < Date.now() || String(body.resetToken || '') !== pending.token) {
+        return send({ error: 'That password reset session is invalid or expired.' }, 401)
+      }
+      if (password.length < 8 || !/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/\d/.test(password) || !/[@$!%*?&]/.test(password)) {
+        return send({ error: 'Password does not meet the security requirements.' }, 400)
+      }
+      const seller = state.users.find((item) => item.email === email)
+      if (!seller) return send({ error: 'Account not found.' }, 404)
+      seller.passwordHash = hashPassword(password)
+      seller.updatedAt = new Date().toISOString()
+      delete state.passwordResetTokens[email]
+      save()
+      return send({ message: 'Your password has been updated.' })
     }
     if (path === '/api/auth/admin/login' && req.method === 'POST') {
       if (String(body.email || '').trim().toLowerCase() !== ADMIN_EMAIL.toLowerCase() || body.password !== ADMIN_PASSWORD) return send({ error: 'Invalid admin email or password.' }, 401)

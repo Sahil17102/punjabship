@@ -15,6 +15,7 @@
   "dependencies": {
     "india-pincode": "^2.5.9",
     "lucide-react": "^0.468.0",
+    "nodemailer": "^10.0.13",
     "pg": "^8.23.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
