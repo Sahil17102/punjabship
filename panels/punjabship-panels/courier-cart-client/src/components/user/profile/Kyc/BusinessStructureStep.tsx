@@ -92,14 +92,6 @@ export const BusinessStructureStep: React.FC<Props> = ({ defaultValue, onChange,
   const selectedStructure = watch('structure')
   const selectedCompanyType = watch('companyType')
 
-  React.useEffect(() => {
-    if (selectedStructure) onChange(selectedStructure, 'structure')
-  }, [selectedStructure])
-
-  React.useEffect(() => {
-    if (selectedCompanyType) onChange(selectedCompanyType, 'companyType')
-  }, [selectedCompanyType])
-
   const companyTypeRef = React.useRef<HTMLDivElement>(null)
 
   // Auto-scroll if structure is 'company' but no companyType selected
@@ -146,7 +138,11 @@ export const BusinessStructureStep: React.FC<Props> = ({ defaultValue, onChange,
                       borderColor: '#0877C9',
                     },
                   }}
-                  onClick={() => setValue('structure', option.value)}
+                  onClick={() => {
+                    setValue('structure', option.value)
+                    if (option.value !== 'company') setValue('companyType', undefined)
+                    onChange(option.value, 'structure')
+                  }}
                 >
                   <CardContent>
                     <Typography
@@ -184,7 +180,10 @@ export const BusinessStructureStep: React.FC<Props> = ({ defaultValue, onChange,
                   label="Type of Company"
                   items={companyTypeOptions}
                   value={field.value}
-                  onSelect={field.onChange}
+                  onSelect={(nextValue) => {
+                    field.onChange(nextValue)
+                    onChange(nextValue as CompanyType, 'companyType')
+                  }}
                   required
                 />
               </Box>

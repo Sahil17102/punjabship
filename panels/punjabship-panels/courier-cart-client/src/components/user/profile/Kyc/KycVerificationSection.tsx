@@ -22,9 +22,13 @@ const KYCVerificationStep: React.FC<{
   const { mutateAsync, isPending } = useSubmitKyc()
 
   const [activeStep, setActiveStep] = useState(0)
-  const [kycData, setKycData] = useState<Partial<KycDetails>>({})
-  const kycDataRef = useRef<Partial<KycDetails>>({})
-  const [isStepValid, setIsStepValid] = useState(false)
+  const initialKycData: Partial<KycDetails> = {
+    ...(editing && existingKyc ? existingKyc : {}),
+    structure: existingKyc?.structure ?? 'individual',
+  }
+  const [kycData, setKycData] = useState<Partial<KycDetails>>(initialKycData)
+  const kycDataRef = useRef<Partial<KycDetails>>(initialKycData)
+  const [isStepValid, setIsStepValid] = useState(Boolean(initialKycData.structure))
 
   const updateKycData = (newData: Partial<KycDetails>) => {
     setKycData((prev) => {
@@ -37,16 +41,21 @@ const KYCVerificationStep: React.FC<{
   // Prefill when editing mode is on
   useEffect(() => {
     if (editing && existingKyc) {
-      const initial = { ...existingKyc }
+      const initial = { ...existingKyc, structure: existingKyc.structure ?? 'individual' }
       setKycData(initial)
       kycDataRef.current = initial
-      if (existingKyc.structure) setIsStepValid(true)
+      setIsStepValid(Boolean(initial.structure))
     }
   }, [editing, existingKyc])
 
   const handleBusinessStructureChange = (value: BusinessStructure | CompanyType, key: string) => {
     updateKycData({
-      ...(key === 'structure' ? { structure: value as BusinessStructure } : {}),
+      ...(key === 'structure'
+        ? {
+            structure: value as BusinessStructure,
+            ...((value as BusinessStructure) !== 'company' ? { companyType: undefined } : {}),
+          }
+        : {}),
       ...(key === 'companyType' ? { companyType: value as CompanyType } : {}),
     })
     setIsStepValid(true)
@@ -102,10 +111,13 @@ const KYCVerificationStep: React.FC<{
 
   const handleNext = async () => {
     const data = kycDataRef.current
+    const structure = data.structure ?? 'individual'
+
+    if (!data.structure) updateKycData({ structure })
 
     if (
       activeStep === 0 &&
-      (!data.structure || (data?.structure === 'company' && !data?.companyType))
+      structure === 'company' && !data?.companyType
     ) {
       return
     }
