@@ -1,6 +1,7 @@
 import http from 'node:http'
 import { randomBytes, randomInt, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto'
 import { createRequire } from 'node:module'
+import Busboy from 'busboy'
 import {
   createShipGlobalClient,
   extractShipGlobalAwb,
@@ -10,6 +11,17 @@ import {
 } from './shipglobal.mjs'
 import { createStateStore } from './state-store.mjs'
 import { isMailConfigured, mailStatus, sendOtpEmail, sendPasswordResetEmail } from './mailer.mjs'
+import {
+  createObjectKey,
+  isOwnerKey,
+  isPunjabShipKey,
+  isStorageConfigured,
+  putObject,
+  signedDownloadUrl,
+  signedUploadUrl,
+  storageBucket,
+  storageStatus,
+} from './r2-storage.mjs'
 
 const require = createRequire(import.meta.url)
 const { loadData: loadIndiaPostData } = require('india-pincode')
@@ -1037,19 +1049,59 @@ const createOrderDocumentPdf = (order, type) => {
   return createPdf(595, 842, commands)
 }
 
-const parseMultipart = (raw, contentType) => {
-  const boundary = contentType.match(/boundary=(?:"([^"]+)"|([^;]+))/)?.slice(1).find(Boolean)
-  if (!boundary) return {}
+const persistOrderDocument = async (order, type) => {
+  if (!isStorageConfigured()) return `manual-doc:${type}:${order.id}`
+  const pdf = createOrderDocumentPdf(order, type)
+  const key = createObjectKey({ ownerId: order.user_id, folder: `documents-${type}`, filename: documentFileName(order, type) })
+  await putObject({ key, body: pdf, contentType: 'application/pdf', metadata: { documentType: type, orderId: String(order.id) } })
+  return key
+}
+
+const parseMultipart = (raw, contentType) => new Promise((resolve, reject) => {
   const result = {}
-  for (const part of raw.split(`--${boundary}`)) {
-    const splitAt = part.indexOf('\r\n\r\n')
-    if (splitAt < 0) continue
-    const headers = part.slice(0, splitAt)
-    const name = headers.match(/name="([^"]+)"/)?.[1]
-    if (!name) continue
-    result[name] = part.slice(splitAt + 4).replace(/\r\n$/, '')
+  let parseError
+  let parser
+  try {
+    parser = Busboy({
+      headers: { 'content-type': contentType },
+      limits: { files: 1, fileSize: 10 * 1024 * 1024, fields: 20, fieldSize: 256 * 1024 },
+    })
+  } catch (error) {
+    reject(error)
+    return
   }
-  return result
+  parser.on('field', (name, value) => { result[name] = value })
+  parser.on('file', (name, stream, info) => {
+    const chunks = []
+    stream.on('data', (chunk) => chunks.push(chunk))
+    stream.on('limit', () => { parseError = Object.assign(new Error('File exceeds the 10 MB upload limit.'), { statusCode: 413 }) })
+    stream.on('end', () => {
+      result[name] = { buffer: Buffer.concat(chunks), filename: info.filename, mimeType: info.mimeType, encoding: info.encoding }
+    })
+  })
+  parser.on('filesLimit', () => { parseError = Object.assign(new Error('Upload one file at a time.'), { statusCode: 400 }) })
+  parser.on('error', reject)
+  parser.on('finish', () => parseError ? reject(parseError) : resolve(result))
+  parser.end(raw)
+})
+
+const allowedUploadMimeTypes = new Set([
+  'application/pdf', 'image/jpeg', 'image/png', 'image/webp',
+  'text/csv', 'application/csv', 'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+])
+const allowedUploadExtensions = new Set(['.pdf', '.jpg', '.jpeg', '.png', '.webp', '.csv', '.doc', '.docx'])
+const uploadFile = async ({ file, folder, ownerId, publicObject = false }) => {
+  if (!isStorageConfigured()) throw Object.assign(new Error('Cloud storage is not configured.'), { statusCode: 503 })
+  if (!file?.buffer?.length) throw Object.assign(new Error('Select a file to upload.'), { statusCode: 400 })
+  const filename = String(file.filename || 'file')
+  const extension = filename.includes('.') ? `.${filename.split('.').pop().toLowerCase()}` : ''
+  if (!allowedUploadMimeTypes.has(file.mimeType) || !allowedUploadExtensions.has(extension)) {
+    throw Object.assign(new Error('Unsupported file type. Upload PDF, JPG, PNG, WEBP, CSV, DOC, or DOCX files only.'), { statusCode: 415 })
+  }
+  const key = createObjectKey({ ownerId, folder, filename, publicObject })
+  await putObject({ key, body: file.buffer, contentType: file.mimeType, metadata: { originalName: filename.replace(/[^\x20-\x7E]/g, '').slice(0, 120) } })
+  return key
 }
 
 http.createServer(async (req, res) => {
@@ -1067,15 +1119,21 @@ http.createServer(async (req, res) => {
   try {
     const requestUrl = new URL(req.url, 'http://localhost')
     const path = requestUrl.pathname.replace(/\/$/, '')
-    let raw = ''
-    for await (const chunk of req) raw += chunk
+    const chunks = []
+    let rawSize = 0
+    for await (const chunk of req) {
+      rawSize += chunk.length
+      if (rawSize > 22 * 1024 * 1024) throw Object.assign(new Error('Request body exceeds the 22 MB limit.'), { statusCode: 413 })
+      chunks.push(chunk)
+    }
+    const raw = Buffer.concat(chunks)
     const contentType = String(req.headers['content-type'] || '')
-    const body = !raw ? {} : contentType.includes('multipart/form-data')
-      ? parseMultipart(raw, contentType)
-      : JSON.parse(raw)
+    const body = !raw.length ? {} : contentType.includes('multipart/form-data')
+      ? await parseMultipart(raw, contentType)
+      : JSON.parse(raw.toString('utf8'))
     console.log(req.method, path)
 
-    if (path === '' || path === '/api/health') return send({ success: true, mode: 'punjabship-demo-api', storage: stateStore.mode, integrations: { shipglobal: { configured: shipGlobal.isConfigured(), service: SHIPGLOBAL_SERVICE }, email: mailStatus() } })
+    if (path === '' || path === '/api/health') return send({ success: true, mode: 'punjabship-demo-api', storage: stateStore.mode, integrations: { shipglobal: { configured: shipGlobal.isConfigured(), service: SHIPGLOBAL_SERVICE }, email: mailStatus(), objectStorage: storageStatus() } })
     if (path === '/api/auth/request-otp' && req.method === 'POST') {
       const email = String(body.email || '').trim().toLowerCase()
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return send({ error: 'Enter a valid email address.' }, 400)
@@ -1543,7 +1601,7 @@ http.createServer(async (req, res) => {
       if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
       const courier = state.manualCouriers.find((item) => item.id === manualPincodeImportMatch[1])
       if (!courier) return send({ success: false, message: 'Manual courier not found.' }, 404)
-      const imported = normalizePincodes(String(body.file || '').match(/[1-9]\d{5}/g) || [])
+      const imported = normalizePincodes(String(body.file?.buffer || body.file || '').match(/[1-9]\d{5}/g) || [])
       courier.pincodeScope = 'selected'
       courier.excludedPincodes = []
       courier.pincodes = String(body.mode || 'append') === 'replace' ? imported : normalizePincodes([...(courier.pincodes || []), ...imported])
@@ -1933,7 +1991,7 @@ http.createServer(async (req, res) => {
       if (!matched.length) return send({ success: false, message: 'No eligible shipments found for this manifest.' }, 404)
       const manifestId = `MNF-${Date.now()}`
       for (const order of matched) {
-        const key = `manual-doc:manifest:${order.id}`
+        const key = await persistOrderDocument({ ...order, manifest_id: manifestId }, 'manifest')
         order.manifest_id = manifestId
         order.manifest = key
         order.manifest_key = key
@@ -1942,7 +2000,7 @@ http.createServer(async (req, res) => {
         order.updated_at = new Date().toISOString()
       }
       save()
-      return send({ manifest_id: manifestId, manifest_url: `manual-doc:manifest:${matched[0].id}`, warnings: [] })
+      return send({ manifest_id: manifestId, manifest_url: matched[0].manifest_key, warnings: [] })
     }
     const regenerateDocumentsMatch = path.match(/^\/api\/orders\/([^/]+)\/regenerate-documents$/)
     if (regenerateDocumentsMatch && req.method === 'POST') {
@@ -1951,29 +2009,65 @@ http.createServer(async (req, res) => {
       const order = state.orders.find((item) => item.user_id === seller.id && item.id === decodeURIComponent(regenerateDocumentsMatch[1]))
       if (!order) return send({ success: false, message: 'Order not found.' }, 404)
       if (body.regenerateLabel !== false) {
-        order.label_key = `manual-doc:label:${order.id}`
+        order.label_key = await persistOrderDocument(order, 'label')
         order.label = order.label_key
       }
       if (body.regenerateInvoice !== false) {
-        order.invoice_key = `manual-doc:invoice:${order.id}`
+        order.invoice_key = await persistOrderDocument(order, 'invoice')
         order.invoice_link = order.invoice_key
       }
       order.updated_at = new Date().toISOString()
       save()
       return send({ success: true, order: orderForPanels(order), message: 'Shipment documents generated.' })
     }
+    if (['/api/uploads/file', '/api/uploads/shopify-file'].includes(path) && req.method === 'POST') {
+      const seller = currentSeller(req)
+      const admin = isAdminRequest(req)
+      if (!seller && !admin) return send({ success: false, message: 'Authentication required.' }, 401)
+      const folder = String(body.folder || 'files')
+      const publicObject = admin && folder === 'about-us'
+      const key = await uploadFile({ file: body.file, folder, ownerId: seller?.id || 'admin', publicObject })
+      const protocol = String(req.headers['x-forwarded-proto'] || 'http').split(',')[0]
+      const host = req.headers.host
+      const publicUrl = publicObject
+        ? `${protocol}://${host}/api/uploads/public?key=${encodeURIComponent(key)}`
+        : await signedDownloadUrl(key, 3600)
+      return send({ key, publicUrl, bucket: storageBucket }, 201)
+    }
+    if (path === '/api/uploads/presign' && req.method === 'POST') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const contentType = String(body.contentType || '')
+      if (!contentType.startsWith('image/')) return send({ success: false, message: 'Only images can be embedded in public content.' }, 415)
+      const key = createObjectKey({ ownerId: 'admin', folder: body.folder || 'about-us', filename: body.filename || 'image', publicObject: true })
+      const uploadUrl = await signedUploadUrl({ key, contentType, expiresIn: 900 })
+      const protocol = String(req.headers['x-forwarded-proto'] || 'http').split(',')[0]
+      const publicUrl = `${protocol}://${req.headers.host}/api/uploads/public?key=${encodeURIComponent(key)}`
+      return send({ key, uploadUrl, publicUrl, expiresIn: 900 })
+    }
+    if (path === '/api/uploads/public' && req.method === 'GET') {
+      const key = String(requestUrl.searchParams.get('key') || '')
+      if (!key.startsWith(`${storageStatus().prefix || ''}public/`)) return send({ success: false, message: 'File not found.' }, 404)
+      const url = await signedDownloadUrl(key, 300)
+      res.writeHead(302, { Location: url, 'Cache-Control': 'public, max-age=240' })
+      res.end()
+      return
+    }
     if (path === '/api/uploads/presign-download-url' && req.method === 'POST') {
       const seller = currentSeller(req)
-      if (!seller) return send({ success: false, message: 'Authentication required.' }, 401)
+      const admin = isAdminRequest(req)
+      if (!seller && !admin) return send({ success: false, message: 'Authentication required.' }, 401)
       const keys = Array.isArray(body.keys) ? body.keys : [body.keys]
       const protocol = String(req.headers['x-forwarded-proto'] || 'http').split(',')[0]
       const host = req.headers.host
-      const urls = keys.map((key) => {
+      const urls = await Promise.all(keys.map(async (key) => {
         const match = String(key || '').match(/^manual-doc:(label|invoice|manifest):(.+)$/)
-        if (!match) return null
-        const order = state.orders.find((item) => item.user_id === seller.id && item.id === match[2])
-        return order ? `${protocol}://${host}/api/orders/documents/download?key=${encodeURIComponent(key)}` : null
-      })
+        if (match) {
+          const order = state.orders.find((item) => (admin || item.user_id === seller?.id) && item.id === match[2])
+          return order ? `${protocol}://${host}/api/orders/documents/download?key=${encodeURIComponent(key)}` : null
+        }
+        if (!isPunjabShipKey(key) || (!admin && !isOwnerKey(key, seller.id))) return null
+        return signedDownloadUrl(key, 25 * 60 * 60)
+      }))
       return Array.isArray(body.keys) ? send({ urls }) : send({ url: urls[0] })
     }
     if (path === '/api/orders/documents/download' && req.method === 'GET') {

@@ -97,14 +97,11 @@ const AboutUsEditor = () => {
 
   const uploadImageCallback = async (file) => {
     try {
-      const { data } = await api.post('/uploads/presign', {
-        contentType: file.type || 'image/*',
-        filename: file.name,
-        folder: 'about-us',
-      })
-
-      await api.put(data.uploadUrl, file, {
-        headers: { 'Content-Type': file.type || 'image/*' },
+      const body = new FormData()
+      body.append('file', file, file.name)
+      body.append('folder', 'about-us')
+      const { data } = await api.post('/uploads/file', body, {
+        headers: { 'Content-Type': 'multipart/form-data' },
       })
 
       // react-draft-wysiwyg expects this shape

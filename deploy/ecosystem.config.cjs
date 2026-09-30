@@ -16,6 +16,7 @@ module.exports = {
         ADMIN_EMAIL: 'admin@punjabshiplogistics.com',
         ADMIN_PASSWORD: 'Demo@123',
         SMTP_CONFIG_FILE: '/var/www/punjabship/shared/mail.env',
+        STORAGE_CONFIG_FILE: '/var/www/punjabship/shared/storage.env',
       },
     },
   ],

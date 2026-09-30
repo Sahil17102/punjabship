@@ -9,10 +9,13 @@
     "start": "node panels/local-api.mjs",
     "preview": "vite preview",
     "test": "npm run test:backend && npm run build && go test ./...",
-    "test:backend": "node --test panels/shipglobal.test.mjs panels/state-store.test.mjs",
+    "test:backend": "node --test panels/shipglobal.test.mjs panels/state-store.test.mjs panels/r2-storage.test.mjs",
     "test:shipglobal": "node --test panels/shipglobal.test.mjs"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1144.0",
+    "@aws-sdk/s3-request-presigner": "^3.1144.0",
+    "busboy": "^1.6.0",
     "india-pincode": "^2.5.9",
     "lucide-react": "^0.468.0",
     "nodemailer": "^10.0.13",
