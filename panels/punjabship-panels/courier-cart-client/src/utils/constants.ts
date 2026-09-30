@@ -89,8 +89,8 @@ export const requiredKycDetails: Record<
   BusinessStructure,
   (keyof AdditionalKYCForm)[] | Record<CompanyType, (keyof AdditionalKYCForm)[]>
 > = {
-  individual: ['panNumber', 'panCardUrl', 'aadhaarUrl', 'cancelledChequeUrl'],
-  sole_proprietor: ['panNumber', 'gstin', 'panCardUrl', 'aadhaarUrl', 'cancelledChequeUrl', 'gstCertificateUrl'],
+  individual: ['panNumber', 'panCardUrl', 'aadhaarUrl', 'cancelledChequeUrl', 'selfieUrl'],
+  sole_proprietor: ['panNumber', 'gstin', 'panCardUrl', 'aadhaarUrl', 'cancelledChequeUrl', 'gstCertificateUrl', 'selfieUrl'],
   partnership_firm: [
     'panNumber',
     'gstin',
@@ -99,6 +99,7 @@ export const requiredKycDetails: Record<
     'aadhaarUrl',
     'cancelledChequeUrl',
     'gstCertificateUrl',
+    'selfieUrl',
   ],
   company: {
     private_limited: [
@@ -109,6 +110,7 @@ export const requiredKycDetails: Record<
       'boardResolutionUrl',
       'businessPanUrl',
       'aadhaarUrl',
+      'selfieUrl',
     ],
     llp: [
       'panNumber',
@@ -119,6 +121,7 @@ export const requiredKycDetails: Record<
       'cancelledChequeUrl',
       'llpAgreementUrl',
       'gstCertificateUrl',
+      'selfieUrl',
     ],
     one_person_company: [
       'panNumber',
@@ -128,6 +131,7 @@ export const requiredKycDetails: Record<
       'cin',
       'companyAddressProofUrl',
       'cancelledChequeUrl',
+      'selfieUrl',
     ],
     section_8_company: [
       'panNumber',
@@ -137,8 +141,9 @@ export const requiredKycDetails: Record<
       'companyAddressProofUrl',
       'boardResolutionUrl',
       'cancelledChequeUrl',
+      'selfieUrl',
     ],
-    public_limited: ['panNumber', 'gstin', 'businessPanUrl', 'aadhaarUrl', 'gstCertificateUrl'],
+    public_limited: ['panNumber', 'gstin', 'businessPanUrl', 'aadhaarUrl', 'gstCertificateUrl', 'selfieUrl'],
   },
 }
 
@@ -152,6 +157,7 @@ export const requiredKycFieldMap: Record<
     panCardUrl: true,
     aadhaarUrl: true,
     cancelledChequeUrl: true,
+    selfieUrl: true,
   },
   sole_proprietor: {
     panNumber: true,
@@ -159,6 +165,7 @@ export const requiredKycFieldMap: Record<
     panCardUrl: true,
     aadhaarUrl: true,
     cancelledChequeUrl: true,
+    selfieUrl: true,
   },
   partnership_firm: {
     panNumber: true,
@@ -168,6 +175,7 @@ export const requiredKycFieldMap: Record<
     aadhaarUrl: true,
     cancelledChequeUrl: true,
     gstCertificateUrl: false,
+    selfieUrl: true,
   },
   company: {
     private_limited: {
@@ -178,6 +186,7 @@ export const requiredKycFieldMap: Record<
       boardResolutionUrl: true,
       businessPanUrl: true,
       aadhaarUrl: true,
+      selfieUrl: true,
     },
     llp: {
       panNumber: true,
@@ -188,6 +197,7 @@ export const requiredKycFieldMap: Record<
       cancelledChequeUrl: true,
       llpAgreementUrl: true,
       gstCertificateUrl: false,
+      selfieUrl: true,
     },
     one_person_company: {
       panNumber: true,
@@ -197,6 +207,7 @@ export const requiredKycFieldMap: Record<
       cin: true,
       companyAddressProofUrl: true,
       cancelledChequeUrl: true,
+      selfieUrl: true,
     },
     section_8_company: {
       panNumber: true,
@@ -206,6 +217,7 @@ export const requiredKycFieldMap: Record<
       companyAddressProofUrl: true,
       boardResolutionUrl: true,
       cancelledChequeUrl: true,
+      selfieUrl: true,
     },
     public_limited: {
       panNumber: true,
@@ -213,6 +225,7 @@ export const requiredKycFieldMap: Record<
       businessPanUrl: true,
       aadhaarUrl: true,
       gstCertificateUrl: true,
+      selfieUrl: true,
     },
   },
 }

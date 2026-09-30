@@ -11,6 +11,7 @@ import {
   requiredKycDetails,
   requiredKycFieldMap,
 } from "../../../../utils/constants";
+import SelfieCapture from "./SelfieCapture";
 
 export interface AdditionalKYCForm {
   gstin?: string;
@@ -25,6 +26,9 @@ export interface AdditionalKYCForm {
   boardResolutionUrl?: string;
   llpAgreementUrl?: string;
   cancelledChequeUrl?: string;
+  selfieUrl?: string;
+  selfieMime?: string;
+  selfieOriginalName?: string;
 }
 
 interface Props {
@@ -48,6 +52,9 @@ const fieldLabels: Record<keyof AdditionalKYCForm, string> = {
   boardResolutionUrl: "Upload Board Resolution",
   cancelledChequeUrl: "Upload Cancelled Cheque",
   llpAgreementUrl: "Upload LLP Agreement",
+  selfieUrl: "Live Face Selfie",
+  selfieMime: "Selfie MIME Type",
+  selfieOriginalName: "Selfie File Name",
 };
 
 const inputPlaceholders: Partial<Record<keyof AdditionalKYCForm, string>> = {
@@ -76,6 +83,7 @@ const allowedMimeTypes: Partial<Record<keyof AdditionalKYCForm, string>> = {
   businessPanUrl: "image/jpeg,image/png,application/pdf",
   gstCertificateUrl: "image/jpeg,image/png,application/pdf",
   llpAgreementUrl: "application/pdf",
+  selfieUrl: "image/jpeg,image/png",
 };
 
 const isFileField = (field: keyof AdditionalKYCForm) =>
@@ -89,6 +97,7 @@ const isFileField = (field: keyof AdditionalKYCForm) =>
     "cancelledChequeUrl",
     "businessPanUrl",
     "gstCertificateUrl",
+    "selfieUrl",
   ].includes(field);
 
 export default function AdditionalDetailsStep({
@@ -298,7 +307,17 @@ export default function AdditionalDetailsStep({
                   ? `${fieldLabels[field]} is required`
                   : false,
               }}
-              render={({ field: ctrl, fieldState }) => (
+              render={({ field: ctrl, fieldState }) => field === "selfieUrl" ? (
+                <SelfieCapture
+                  value={ctrl.value as string | undefined}
+                  error={fieldState.error?.message}
+                  onChange={({ key, mime, originalName }) => {
+                    setValue("selfieMime", mime);
+                    setValue("selfieOriginalName", originalName);
+                    ctrl.onChange(key);
+                  }}
+                />
+              ) : (
                 <Stack mt={1.5}>
                   <FileUploader
                     required={isRequiredField(field)}

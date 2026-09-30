@@ -231,6 +231,7 @@ const UserKycPage = ({ userId }) => {
   ]
 
   const docFields = [
+    { label: 'Live Face Selfie', key: 'selfieUrl', status: kyc.selfieStatus },
     { label: 'Aadhaar', key: 'aadhaarUrl', status: kyc.aadhaarStatus },
     { label: 'Board Resolution', key: 'boardResolutionUrl', status: kyc.boardResolutionStatus },
     { label: 'Business PAN', key: 'businessPanUrl', status: kyc.businessPanStatus },

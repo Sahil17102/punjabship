@@ -75,21 +75,11 @@ export const useMerchantReadiness = () => {
         path: '/settings/manage_pickups',
         actionLabel: 'Add Pickup Address',
       },
-      {
-        key: 'wallet',
-        title: 'Wallet Ready',
-        description: `Keep at least Rs ${requiredWalletBalance.toLocaleString('en-IN')} available for first-order charges.`,
-        done: walletBalance >= requiredWalletBalance,
-        path: '/billing/wallet_transactions',
-        actionLabel: 'Add Wallet Balance',
-      },
     ],
     [
       hasAssignedPlan,
       isEmployee,
       readiness,
-      requiredWalletBalance,
-      walletBalance,
     ],
   )
 

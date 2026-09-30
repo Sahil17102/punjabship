@@ -37,6 +37,7 @@ const iconMap: Record<string, JSX.Element> = {
   panNumber: <MdBadge />,
   panCardUrl: <MdBadge />,
   aadhaarUrl: <MdVerifiedUser />,
+  selfieUrl: <MdImage />,
   cancelledChequeUrl: <MdAccountBalance />,
   partnershipDeedUrl: <MdGavel />,
   boardResolutionUrl: <MdDescription />,
@@ -49,6 +50,7 @@ const getLabel = (key: string) => {
     panNumber: 'PAN Number',
     panCardUrl: 'PAN Card',
     aadhaarUrl: 'Aadhaar Card',
+    selfieUrl: 'Live Face Selfie',
     businessPanUrl: 'Business PAN',
     llpAgreementUrl: 'LLP Agreement',
     gstCertificateUrl: 'GST Certificate',
@@ -305,6 +307,7 @@ const KycDetailsCard = ({
       'cancelledChequeUrl',
       'businessPanUrl',
       'gstCertificateUrl',
+      'selfieUrl',
     ].includes(f)
 
   const fileFieldsToShow = allFields.filter(isFileField)

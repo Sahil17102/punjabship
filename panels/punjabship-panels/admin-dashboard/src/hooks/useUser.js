@@ -161,12 +161,14 @@ export const useApproveKyc = () => {
         duration: 4000,
         isClosable: true,
       })
-      queryClient.invalidateQueries(['userKyc', userId])
+      queryClient.invalidateQueries({ queryKey: ['userKyc', userId] })
+      queryClient.invalidateQueries({ queryKey: ['userInfo', userId] })
+      queryClient.invalidateQueries({ queryKey: ['users-with-role-user'] })
     },
     onError: (error) => {
       toast({
         title: 'Failed to approve KYC',
-        description: error?.message || 'An error occurred.',
+        description: error?.response?.data?.message || error?.message || 'An error occurred.',
         status: 'error',
         duration: 5000,
         isClosable: true,

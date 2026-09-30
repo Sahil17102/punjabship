@@ -747,7 +747,15 @@ const merchantReadiness = (seller) => {
     requiredWalletBalance,
     isEmployee: false,
   }
-  return { ...result, isReady: Object.entries(result).every(([key, value]) => key.startsWith('assignedPlan') || key === 'isEmployee' || Boolean(value)) }
+  const isReady = Boolean(
+    result.onboardingComplete &&
+    result.hasCompanyInfo &&
+    result.approved &&
+    result.kycVerified &&
+    result.hasAssignedPlan &&
+    result.hasPickupAddress
+  )
+  return { ...result, isReady }
 }
 
 const isShipGlobalOrder = (order) => `${order?.integration_type || ''} ${order?.courier_partner || ''}`.toLowerCase().includes('shipglobal')
@@ -806,6 +814,30 @@ const localTracking = (order) => ({
 })
 
 const normalizeBusinessType = (value) => String(value || 'b2c').trim().toLowerCase()
+const assignDefaultPlans = (seller) => {
+  const types = new Set((seller.businessType || []).map(normalizeBusinessType))
+  if (!types.size) types.add('b2c')
+  if (types.has('d2c')) types.add('b2c')
+  for (const businessType of ['b2c', 'b2b']) {
+    if (!types.has(businessType)) continue
+    const idField = businessType === 'b2b' ? 'currentB2BPlanId' : 'currentB2CPlanId'
+    const nameField = businessType === 'b2b' ? 'currentB2BPlanName' : 'currentB2CPlanName'
+    if (seller[idField]) continue
+    const plan = state.plans.find((item) => normalizeBusinessType(item.business_type) === businessType && item.is_active !== false)
+    if (!plan) continue
+    seller[idField] = plan.id
+    seller[nameField] = plan.name
+    if (businessType === 'b2c') {
+      seller.currentPlanId = plan.id
+      seller.currentPlanName = plan.name
+    }
+  }
+}
+const markKycDocuments = (kyc, status) => {
+  for (const [key, value] of Object.entries(kyc || {})) {
+    if (key.endsWith('Url') && value) kyc[`${key.slice(0, -3)}Status`] = status
+  }
+}
 const normalizePincodes = (values) => Array.from(new Set((Array.isArray(values) ? values : [])
   .map((value) => String(value || '').replace(/\D/g, '').slice(0, 6))
   .filter((value) => /^[1-9]\d{5}$/.test(value))))
@@ -1265,7 +1297,13 @@ http.createServer(async (req, res) => {
     if (path === '/api/profile/kyc' && req.method === 'POST') {
       const seller = currentSeller(req)
       if (!seller) return send({ error: 'Authentication required.' }, 401)
-      seller.domesticKyc = { ...seller.domesticKyc, ...body, status: 'verification_in_progress', updatedAt: new Date().toISOString() }
+      if (!String(body.selfieUrl || '').trim()) return send({ success: false, message: 'A live face selfie is required before KYC submission.' }, 400)
+      const previousKyc = seller.domesticKyc || {}
+      const nextKyc = { ...previousKyc, ...body, status: 'verification_in_progress', rejectionReason: null, updatedAt: new Date().toISOString() }
+      for (const [key, value] of Object.entries(body)) {
+        if (key.endsWith('Url') && value && value !== previousKyc[key]) nextKyc[`${key.slice(0, -3)}Status`] = 'verification_in_progress'
+      }
+      seller.domesticKyc = nextKyc
       seller.updatedAt = new Date().toISOString()
       save()
       return send({ success: true, message: 'KYC submitted for verification.', kyc: seller.domesticKyc })
@@ -1378,11 +1416,13 @@ http.createServer(async (req, res) => {
     }
     const approveUserMatch = path.match(/^\/api\/admin\/users\/([^/]+)\/approve$/)
     if (approveUserMatch && req.method === 'PATCH') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
       const seller = state.users.find((item) => item.id === approveUserMatch[1])
       if (!seller) return send({ error: 'Seller not found.' }, 404)
       seller.approved = true
       seller.approvedAt = new Date().toISOString()
       seller.updatedAt = seller.approvedAt
+      assignDefaultPlans(seller)
       save()
       return send({ success: true, message: 'Seller account approved.', user: seller })
     }
@@ -1428,26 +1468,52 @@ http.createServer(async (req, res) => {
     }
     const adminKycMatch = path.match(/^\/api\/admin\/users\/([^/]+)\/kyc$/)
     if (adminKycMatch && req.method === 'GET') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
       const seller = state.users.find((item) => item.id === adminKycMatch[1])
       return seller ? send({ success: true, kyc: seller.domesticKyc || { status: 'pending' } }) : send({ error: 'Seller not found.' }, 404)
     }
     const approveKycMatch = path.match(/^\/api\/admin\/users\/kyc\/approve\/([^/]+)$/)
     if (approveKycMatch && req.method === 'POST') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
       const seller = state.users.find((item) => item.id === approveKycMatch[1])
       if (!seller) return send({ error: 'Seller not found.' }, 404)
-      seller.domesticKyc = { ...seller.domesticKyc, status: 'verified', rejectionReason: null, updatedAt: new Date().toISOString() }
-      seller.updatedAt = new Date().toISOString()
+      if (!seller.domesticKyc?.selfieUrl) return send({ success: false, message: 'The seller must submit a live face selfie before KYC can be approved.' }, 400)
+      const now = new Date().toISOString()
+      seller.domesticKyc = { ...seller.domesticKyc, status: 'verified', rejectionReason: null, updatedAt: now }
+      markKycDocuments(seller.domesticKyc, 'verified')
+      seller.approved = true
+      seller.approvedAt ||= now
+      seller.updatedAt = now
+      assignDefaultPlans(seller)
       save()
-      return send({ success: true, message: 'KYC approved.', kyc: seller.domesticKyc })
+      return send({ success: true, message: 'KYC and seller account approved.', kyc: seller.domesticKyc, user: seller, readiness: merchantReadiness(seller) })
     }
     const rejectKycMatch = path.match(/^\/api\/admin\/users\/kyc\/(reject|revoke)\/([^/]+)$/)
     if (rejectKycMatch && req.method === 'POST') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
       const seller = state.users.find((item) => item.id === rejectKycMatch[2])
       if (!seller) return send({ error: 'Seller not found.' }, 404)
       seller.domesticKyc = { ...seller.domesticKyc, status: rejectKycMatch[1] === 'reject' ? 'rejected' : 'verification_in_progress', rejectionReason: body.reason || null, updatedAt: new Date().toISOString() }
       seller.updatedAt = new Date().toISOString()
       save()
       return send({ success: true, message: `KYC ${rejectKycMatch[1]}d.`, kyc: seller.domesticKyc })
+    }
+    const documentKycMatch = path.match(/^\/api\/admin\/users\/kyc\/document\/(approve|reject)\/([^/]+)\/([^/]+)$/)
+    if (documentKycMatch && req.method === 'POST') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const [, action, userId, rawKey] = documentKycMatch
+      const key = decodeURIComponent(rawKey)
+      const seller = state.users.find((item) => item.id === userId)
+      if (!seller) return send({ error: 'Seller not found.' }, 404)
+      if (!key.endsWith('Url') || !seller.domesticKyc?.[key]) return send({ error: 'KYC document not found.' }, 404)
+      const statusKey = `${key.slice(0, -3)}Status`
+      const rejectionKey = `${key.slice(0, -3)}RejectionReason`
+      seller.domesticKyc[statusKey] = action === 'approve' ? 'verified' : 'rejected'
+      seller.domesticKyc[rejectionKey] = action === 'approve' ? null : String(body.reason || '').trim() || 'Rejected by administrator'
+      seller.domesticKyc.updatedAt = new Date().toISOString()
+      seller.updatedAt = seller.domesticKyc.updatedAt
+      save()
+      return send({ success: true, message: `KYC document ${action}d.`, kyc: seller.domesticKyc })
     }
     const userInfoMatch = path.match(/^\/api\/user\/user-info\/([^/]+)$/)
     if (userInfoMatch && req.method === 'GET') {
