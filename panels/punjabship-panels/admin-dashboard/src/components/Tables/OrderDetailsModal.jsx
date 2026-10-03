@@ -136,7 +136,7 @@ const OrderDetailsModal = ({ isOpen, onClose, order }) => {
     <Modal isOpen={isOpen} onClose={onClose} size="4xl" scrollBehavior="inside">
       <ModalOverlay />
       <ModalContent bg={bgColor} maxH="90vh">
-        <ModalHeader>
+        <ModalHeader pr={16}>
           <Flex justify="space-between" align="center">
             <Text>Order Details</Text>
             <VStack align="flex-end" spacing={1}>
@@ -155,7 +155,7 @@ const OrderDetailsModal = ({ isOpen, onClose, order }) => {
             </VStack>
           </Flex>
         </ModalHeader>
-        <ModalCloseButton />
+        <ModalCloseButton top={3} right={3} />
 
         <ModalBody>
           <Grid templateColumns={{ base: '1fr', md: 'repeat(2, 1fr)' }} gap={4}>
