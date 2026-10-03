@@ -76,11 +76,13 @@ const RateCard = () => {
       'Courier Name',
       'Service Provider',
       'Mode',
-      'Min Weight',
-      ...allZones.flatMap((zone) => [`${zone.name} (Forward)`, `${zone.name} (RTO)`]),
-      'COD Charges',
-      'COD Percent',
-      'Other Charges',
+      'Business Type',
+      'Weight (KG)',
+      'Slab Type',
+      ...allZones.map((zone) => zone.name),
+      'COD Rs',
+      'COD %',
+      'RTO %',
     ]
 
     const normalize = (s) => s?.trim().toLowerCase().replace(/\s+/g, ' ').replace(/_/g, ' ') ?? ''
@@ -91,24 +93,27 @@ const RateCard = () => {
         existingData?.find((rate) => normalize(rate.courier_name) === normalize(courierName)) || {}
       const mode = row.mode || (normalize(courierName).includes('air') ? 'air' : 'surface')
 
-      const zoneValues = allZones.flatMap((zone) => {
+      const zoneValues = allZones.map((zone) => {
         const zoneRates = row.rates?.[zone.name] || {}
-        return [
-          zoneRates.forward != null ? `₹${zoneRates.forward}` : '',
-          zoneRates.rto != null ? `₹${zoneRates.rto}` : '',
-        ]
+        return zoneRates.forward ?? ''
       })
+      const firstZoneRates = row.rates?.[allZones[0]?.name] || {}
+      const rtoPercent = Number(firstZoneRates.forward) > 0
+        ? Math.round((Number(firstZoneRates.rto || 0) / Number(firstZoneRates.forward)) * 100)
+        : ''
 
       return [
         row.courier_id || (typeof courier === 'object' ? courier.id : ''),
         courierName,
         row.service_provider || (typeof courier === 'object' ? courier.serviceProvider : ''),
         mode,
+        'b2c',
         row.min_weight || '0.5',
+        'First',
         ...zoneValues,
-        row.cod_charges != null ? `₹${row.cod_charges}` : '',
-        row.cod_percent != null ? `${row.cod_percent}%` : '',
-        row.other_charges != null ? `₹${row.other_charges}` : '',
+        row.cod_charges ?? '',
+        row.cod_percent ?? '',
+        rtoPercent,
       ]
     })
 
@@ -297,10 +302,16 @@ const RateCard = () => {
         <FileUploader
           maxSizeMb={5}
           folderKey="rates"
+          accept=".csv"
           uploadLoading={isImporting}
           onUploaded={(files) => {
             if (!files.length) return
-            importRates(files[0], {
+            importRates({
+              file: files[0],
+              planId: filters.planId,
+              businessType: 'b2c',
+              importScope: 'all',
+            }, {
               onSuccess: () => {
                 toast({
                   title: 'Imported successfully',

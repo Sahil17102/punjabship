@@ -497,7 +497,7 @@ export const RateCardContainer = ({ forceBusinessType = null, embedded = false }
             <FileUploader
               maxSizeMb={5}
               folderKey="rates"
-              accept=".csv,.xlsx,.xls"
+              accept=".csv"
               uploadLoading={isImporting}
               onUploaded={(files) => {
                 if (!files.length) return

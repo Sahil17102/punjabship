@@ -9,7 +9,7 @@
     "start": "node panels/local-api.mjs",
     "preview": "vite preview",
     "test": "npm run test:backend && npm run build && go test ./...",
-    "test:backend": "node --test panels/shipglobal.test.mjs panels/state-store.test.mjs panels/r2-storage.test.mjs",
+    "test:backend": "node --test panels/csv-imports.test.mjs panels/import-routes.test.mjs panels/shipglobal.test.mjs panels/state-store.test.mjs panels/r2-storage.test.mjs",
     "test:shipglobal": "node --test panels/shipglobal.test.mjs"
   },
   "dependencies": {

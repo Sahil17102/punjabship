@@ -125,7 +125,7 @@ export const uploadShippingRates = async ({
   if (!file) throw new Error('No file provided for import')
 
   const formData = new FormData()
-  formData.append('file', file?.file) // must be File or Blob
+  formData.append('file', file?.file ?? file) // must be File or Blob
 
   const params = new URLSearchParams({
     planId,

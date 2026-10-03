@@ -65,7 +65,9 @@ export const zoneService = {
   },
   importZoneMappings: async (zoneId, fileObj, userChoices) => {
     const formData = new FormData()
-    formData.append('file', fileObj)
+    const file = fileObj?.file ?? fileObj
+    if (!file) throw new Error('CSV file is required')
+    formData.append('file', file)
     console.log('user choices', userChoices)
 
     // Send the user choices as a JSON string

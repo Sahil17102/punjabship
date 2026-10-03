@@ -1,6 +1,8 @@
 import http from 'node:http'
 import { randomBytes, randomInt, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto'
 import { createRequire } from 'node:module'
+import { resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import Busboy from 'busboy'
 import {
   createShipGlobalClient,
@@ -11,6 +13,7 @@ import {
 } from './shipglobal.mjs'
 import { createStateStore } from './state-store.mjs'
 import { isMailConfigured, mailStatus, sendOtpEmail, sendPasswordResetEmail } from './mailer.mjs'
+import { csvBoolean, csvHeaderKey, csvNumber, parseCsvObjects } from './csv-imports.mjs'
 import {
   createObjectKey,
   isOwnerKey,
@@ -26,7 +29,9 @@ import {
 const require = createRequire(import.meta.url)
 const { loadData: loadIndiaPostData } = require('india-pincode')
 
-const dataFile = new URL('./local-data.json', import.meta.url)
+const dataFile = process.env.PUNJABSHIP_DATA_FILE
+  ? pathToFileURL(resolve(process.env.PUNJABSHIP_DATA_FILE))
+  : new URL('./local-data.json', import.meta.url)
 const DEMO_OTP = process.env.DEMO_OTP || '123456'
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@punjabshiplogistics.com'
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Demo@123'
@@ -261,6 +266,8 @@ const defaultState = {
   zones: [...DEFAULT_B2C_ZONES, ...DEFAULT_B2B_ZONES],
   shippingRates: [defaultB2cRate(), defaultB2bRate()],
   b2bZoneRates: defaultB2bZoneRates(),
+  b2bAdditionalCharges: [],
+  zoneMappings: [],
   manualShipments: [], manualShipmentEvents: [], manualShipmentLegs: [],
 }
 const stateStore = await createStateStore({
@@ -371,6 +378,8 @@ state.manualCouriers ??= []
 state.zones ??= []
 state.shippingRates ??= []
 state.b2bZoneRates ??= []
+state.b2bAdditionalCharges ??= []
+state.zoneMappings ??= []
 state.manualShipments ??= []
 state.manualShipmentEvents ??= []
 state.manualShipmentLegs ??= []
@@ -870,6 +879,48 @@ const officeForPincode = (pincode) => {
   }
   return pincodeOfficeMap.get(String(pincode || '').trim()) || null
 }
+const uploadedCsv = (body) => {
+  const file = body?.file
+  if (!file?.buffer?.length) throw Object.assign(new Error('Select a CSV file to import.'), { statusCode: 400 })
+  if (file.buffer.length > 10 * 1024 * 1024) throw Object.assign(new Error('CSV file exceeds the 10 MB upload limit.'), { statusCode: 413 })
+  const filename = String(file.filename || '').toLowerCase()
+  if (filename && !filename.endsWith('.csv')) throw Object.assign(new Error('Only CSV files are supported for this import.'), { statusCode: 415 })
+  const parsed = parseCsvObjects(file.buffer)
+  if (!parsed.headers.length) throw Object.assign(new Error('The CSV file is empty or has no header row.'), { statusCode: 400 })
+  return parsed
+}
+const requireCsvHeaders = (headers, required) => {
+  const missing = required.filter((header) => !headers.includes(header))
+  if (missing.length) throw Object.assign(new Error(`Missing CSV columns: ${missing.join(', ')}`), { statusCode: 400 })
+}
+const importScopeValue = (body, key, fallback = '') => String(body?.[key] ?? fallback).trim()
+const sameImportScope = (item, { courierId, serviceProvider, planId }) => (
+  String(item.courier_id ?? '') === String(courierId ?? '') &&
+  String(item.service_provider ?? '').toLowerCase() === String(serviceProvider ?? '').toLowerCase() &&
+  String(item.plan_id ?? '') === String(planId ?? '')
+)
+const csvZone = (value, businessType) => {
+  const needle = String(value || '').trim().toLowerCase()
+  if (!needle) return null
+  return state.zones.find((zone) => (
+    normalizeBusinessType(zone.business_type) === businessType &&
+    [zone.id, zone.code, zone.name].some((candidate) => String(candidate || '').trim().toLowerCase() === needle)
+  )) || null
+}
+const camelToSnake = (value) => String(value || '').replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()
+const normalizedChargePayload = (payload = {}) => {
+  const result = {}
+  for (const [key, value] of Object.entries(payload)) {
+    if (['file', 'fieldDefinitions'].includes(key)) continue
+    if (key === 'customFields') result.custom_fields = value
+    else result[camelToSnake(key)] = value
+  }
+  return result
+}
+const locationFields = (pincode) => {
+  const office = officeForPincode(pincode)
+  return { city: office?.area || office?.district || '', state: office?.state || '' }
+}
 const normalizedState = (pincode) => String(officeForPincode(pincode)?.state || '').trim().toLowerCase()
 const SPECIAL_STATES = new Set(['andaman & nicobar islands', 'arunachal pradesh', 'assam', 'jammu & kashmir', 'ladakh', 'manipur', 'meghalaya', 'mizoram', 'nagaland', 'sikkim', 'tripura'])
 const METRO_PREFIXES = ['110', '122', '201', '400', '560', '600', '700', '500', '411', '380']
@@ -1314,6 +1365,55 @@ http.createServer(async (req, res) => {
       const addresses = state.pickupAddresses[seller.id] || []
       return send({ success: true, data: addresses, totalCount: addresses.length })
     }
+    if (path === '/api/pickup-addresses/import' && req.method === 'POST') {
+      const seller = currentSeller(req)
+      if (!seller) return send({ error: 'Authentication required.' }, 401)
+      if (!Array.isArray(body) || !body.length) return send({ success: false, message: 'Add at least one pickup address to import.' }, 400)
+      const addresses = state.pickupAddresses[seller.id] || []
+      const now = new Date().toISOString()
+      const imported = []
+      const skipped = []
+      for (const [index, source] of body.entries()) {
+        const pickupSource = source?.pickup || source || {}
+        const pincode = String(pickupSource.pincode || '').replace(/\D/g, '').slice(0, 6)
+        const contactName = String(pickupSource.contactName || pickupSource.name || '').trim()
+        const addressLine1 = String(pickupSource.addressLine1 || pickupSource.address || '').trim()
+        if (!/^[1-9]\d{5}$/.test(pincode) || !contactName || !addressLine1) {
+          skipped.push({ row: index + 1, reason: 'Contact name, address and valid pincode are required.' })
+          continue
+        }
+        const pickupId = `pickup-${randomUUID()}`
+        const pickup = {
+          ...pickupSource,
+          id: `address-${randomUUID()}`,
+          pincode,
+          contactName,
+          addressLine1,
+          ...(!pickupSource.city || !pickupSource.state ? locationFields(pincode) : {}),
+        }
+        const address = {
+          ...source,
+          id: pickupId,
+          pickupId,
+          addressId: pickup.id,
+          userId: seller.id,
+          pickup,
+          rto: source.rto || source.rtoAddress || null,
+          isPrimary: source.isPrimary === true || (!addresses.length && !imported.length),
+          isPickupEnabled: source.isPickupEnabled !== false,
+          isRTOSame: !source.rto && !source.rtoAddress,
+          createdAt: now,
+          updatedAt: now,
+        }
+        delete address.rtoAddress
+        imported.push(address)
+      }
+      if (!imported.length) return send({ success: false, message: 'No valid pickup addresses were found.', skipped }, 400)
+      if (imported.some((item) => item.isPrimary)) addresses.forEach((item) => { item.isPrimary = false })
+      state.pickupAddresses[seller.id] = [...addresses, ...imported]
+      save()
+      return send({ success: true, data: imported, imported: imported.length, skipped, message: `${imported.length} pickup address(es) imported.` })
+    }
     if (path === '/api/pickup-addresses' && req.method === 'POST') {
       const seller = currentSeller(req)
       if (!seller) return send({ error: 'Authentication required.' }, 401)
@@ -1707,6 +1807,73 @@ http.createServer(async (req, res) => {
       const zone = { ...body, id: body.id || `zone-${randomUUID()}`, business_type: normalizeBusinessType(body.business_type || body.businessType), is_active: body.is_active !== false }
       state.zones.push(zone); save(); return send(zone, 201)
     }
+    const zoneMappingsMatch = path.match(/^\/api\/admin\/zones\/([^/]+)\/mappings$/)
+    if (zoneMappingsMatch && req.method === 'GET') {
+      const zoneId = decodeURIComponent(zoneMappingsMatch[1])
+      const page = Math.max(1, Number(requestUrl.searchParams.get('page') || 1))
+      const limit = Math.min(500, Math.max(1, Number(requestUrl.searchParams.get('limit') || 20)))
+      const searchPincode = String(requestUrl.searchParams.get('pincode') || '').trim()
+      const city = String(requestUrl.searchParams.get('city') || '').trim().toLowerCase()
+      const stateName = String(requestUrl.searchParams.get('state') || '').trim().toLowerCase()
+      let mappings = state.zoneMappings.filter((item) => item.zone_id === zoneId && normalizeBusinessType(item.business_type) !== 'b2b')
+      if (searchPincode) mappings = mappings.filter((item) => String(item.pincode).includes(searchPincode))
+      if (city) mappings = mappings.filter((item) => String(item.city || '').toLowerCase().includes(city))
+      if (stateName) mappings = mappings.filter((item) => String(item.state || '').toLowerCase().includes(stateName))
+      const start = (page - 1) * limit
+      return send({ data: mappings.slice(start, start + limit), total: mappings.length, page, limit })
+    }
+    if (zoneMappingsMatch && req.method === 'POST') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const pincode = String(body.pincode || '').replace(/\D/g, '').slice(0, 6)
+      if (!/^[1-9]\d{5}$/.test(pincode)) return send({ success: false, message: 'A valid six-digit pincode is required.' }, 400)
+      const zoneId = decodeURIComponent(zoneMappingsMatch[1])
+      if (state.zoneMappings.some((item) => item.zone_id === zoneId && item.pincode === pincode)) return send({ success: false, message: 'This pincode is already mapped to the zone.' }, 409)
+      const mapping = { id: `zone-mapping-${randomUUID()}`, ...locationFields(pincode), ...body, pincode, zone_id: zoneId, business_type: 'b2c', created_at: new Date().toISOString() }
+      state.zoneMappings.push(mapping); save(); return send(mapping, 201)
+    }
+    const zoneMappingImportMatch = path.match(/^\/api\/admin\/zones\/([^/]+)\/mappings\/import$/)
+    if (zoneMappingImportMatch && req.method === 'POST') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const zoneId = decodeURIComponent(zoneMappingImportMatch[1])
+      const { headers, records } = uploadedCsv(body)
+      requireCsvHeaders(headers, ['pincode'])
+      let choices = {}
+      try { choices = body.userChoices ? JSON.parse(body.userChoices) : {} } catch { return send({ success: false, message: 'Duplicate choices are invalid.' }, 400) }
+      const inserted = []
+      const overridden = []
+      const skipped = []
+      const duplicates = records.flatMap((row) => {
+        const pincode = String(row.pincode || '').replace(/\D/g, '').slice(0, 6)
+        const existing = state.zoneMappings.find((item) => item.pincode === pincode && normalizeBusinessType(item.business_type) !== 'b2b')
+        if (!existing || existing.zone_id === zoneId || choices[existing.id]) return []
+        return [{ row: row.__row, incomingMapping: { ...locationFields(pincode), city: row.city, state: row.state, pincode, zone_id: zoneId }, existingMapping: existing }]
+      })
+      if (duplicates.length) return send({ success: true, duplicates, inserted: 0, overridden: [], skipped: [] })
+      for (const row of records) {
+        const pincode = String(row.pincode || '').replace(/\D/g, '').slice(0, 6)
+        if (!/^[1-9]\d{5}$/.test(pincode)) { skipped.push({ row: row.__row, reason: 'Invalid pincode.' }); continue }
+        const existing = state.zoneMappings.find((item) => item.pincode === pincode && normalizeBusinessType(item.business_type) !== 'b2b')
+        const next = { ...locationFields(pincode), city: row.city || locationFields(pincode).city, state: row.state || locationFields(pincode).state, pincode, zone_id: zoneId, business_type: 'b2c', updated_at: new Date().toISOString() }
+        if (existing) {
+          if (choices[existing.id] === 'skip') { skipped.push({ row: row.__row, pincode, reason: 'Skipped by user.' }); continue }
+          Object.assign(existing, next); overridden.push(existing)
+        } else {
+          const mapping = { id: `zone-mapping-${randomUUID()}`, ...next, created_at: new Date().toISOString() }
+          state.zoneMappings.push(mapping); inserted.push(mapping)
+        }
+      }
+      save()
+      return send({ success: true, inserted: inserted.length, overridden, skipped, message: `${inserted.length + overridden.length} mapping(s) imported.` })
+    }
+    const zoneMappingItemMatch = path.match(/^\/api\/admin\/zones\/mappings\/([^/]+)$/)
+    if (zoneMappingItemMatch && ['PUT', 'DELETE'].includes(req.method)) {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const index = state.zoneMappings.findIndex((item) => item.id === zoneMappingItemMatch[1])
+      if (index < 0) return send({ success: false, message: 'Zone mapping not found.' }, 404)
+      if (req.method === 'DELETE') { state.zoneMappings.splice(index, 1); save(); return send({ success: true }) }
+      const mapping = state.zoneMappings[index]
+      Object.assign(mapping, body, { id: mapping.id, updated_at: new Date().toISOString() }); save(); return send(mapping)
+    }
     const zoneMatch = path.match(/^\/api\/admin\/zones\/([^/]+)$/)
     if (zoneMatch && req.method === 'GET') {
       const zone = state.zones.find((item) => item.id === zoneMatch[1]); return zone ? send(zone) : send({ message: 'Zone not found.' }, 404)
@@ -1720,6 +1887,115 @@ http.createServer(async (req, res) => {
       if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
       const before = state.zones.length; state.zones = state.zones.filter((item) => item.id !== zoneMatch[1]); if (before === state.zones.length) return send({ message: 'Zone not found.' }, 404)
       save(); return send({ success: true })
+    }
+
+    if (path === '/api/admin/b2b/pincodes' && req.method === 'GET') {
+      const page = Math.max(1, Number(requestUrl.searchParams.get('page') || 1))
+      const limit = Math.min(500, Math.max(1, Number(requestUrl.searchParams.get('limit') || 20)))
+      const zoneId = String(requestUrl.searchParams.get('zone_id') || '')
+      const searchPincode = String(requestUrl.searchParams.get('pincode') || '').trim()
+      const city = String(requestUrl.searchParams.get('city') || '').trim().toLowerCase()
+      const stateName = String(requestUrl.searchParams.get('state') || '').trim().toLowerCase()
+      let mappings = state.zoneMappings.filter((item) => normalizeBusinessType(item.business_type) === 'b2b')
+      if (zoneId) mappings = mappings.filter((item) => item.zone_id === zoneId)
+      if (searchPincode) mappings = mappings.filter((item) => String(item.pincode).includes(searchPincode))
+      if (city) mappings = mappings.filter((item) => String(item.city || '').toLowerCase().includes(city))
+      if (stateName) mappings = mappings.filter((item) => String(item.state || '').toLowerCase().includes(stateName))
+      for (const key of ['is_oda', 'is_remote', 'is_mall', 'is_sez', 'is_airport', 'is_high_security']) {
+        const value = requestUrl.searchParams.get(key)
+        if (value === 'true' || value === 'false') mappings = mappings.filter((item) => Boolean(item[key]) === (value === 'true'))
+      }
+      const start = (page - 1) * limit
+      return send({ success: true, data: mappings.slice(start, start + limit), pagination: { total: mappings.length, page, limit, totalPages: Math.max(1, Math.ceil(mappings.length / limit)) } })
+    }
+    if (path === '/api/admin/b2b/pincodes' && req.method === 'POST') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const pincode = String(body.pincode || '').replace(/\D/g, '').slice(0, 6)
+      const zoneId = String(body.zoneId || body.zone_id || '')
+      if (!/^[1-9]\d{5}$/.test(pincode) || !zoneId) return send({ success: false, message: 'Pincode and zone are required.' }, 400)
+      if (state.zoneMappings.some((item) => item.pincode === pincode && normalizeBusinessType(item.business_type) === 'b2b')) return send({ success: false, message: 'This B2B pincode already exists.' }, 409)
+      const flags = body.flags || {}
+      const mapping = {
+        id: `b2b-pincode-${randomUUID()}`, ...locationFields(pincode), ...body, pincode, zone_id: zoneId, business_type: 'b2b',
+        is_oda: Boolean(flags.isOda ?? body.is_oda), is_remote: Boolean(flags.isRemote ?? body.is_remote),
+        is_mall: Boolean(flags.isMall ?? body.is_mall), is_sez: Boolean(flags.isSez ?? body.is_sez),
+        is_airport: Boolean(flags.isAirport ?? body.is_airport), is_high_security: Boolean(flags.isHighSecurity ?? body.is_high_security),
+        created_at: new Date().toISOString(),
+      }
+      delete mapping.flags
+      state.zoneMappings.push(mapping); save(); return send({ success: true, data: mapping }, 201)
+    }
+    if (path === '/api/admin/b2b/pincodes/import' && req.method === 'POST') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const { headers, records } = uploadedCsv(body)
+      requireCsvHeaders(headers, ['pincode'])
+      const defaultZoneId = importScopeValue(body, 'zoneId', importScopeValue(body, 'defaultZoneId'))
+      if (!defaultZoneId) return send({ success: false, message: 'Select a B2B zone before importing pincodes.' }, 400)
+      let inserted = 0
+      let updated = 0
+      const skipped = []
+      for (const row of records) {
+        const pincode = String(row.pincode || '').replace(/\D/g, '').slice(0, 6)
+        if (!/^[1-9]\d{5}$/.test(pincode)) { skipped.push({ row: row.__row, reason: 'Invalid pincode.' }); continue }
+        const existing = state.zoneMappings.find((item) => item.pincode === pincode && normalizeBusinessType(item.business_type) === 'b2b')
+        if (existing && existing.zone_id !== defaultZoneId) { skipped.push({ row: row.__row, pincode, reason: 'Pincode belongs to another B2B zone.' }); continue }
+        const values = {
+          ...locationFields(pincode), pincode, zone_id: defaultZoneId, business_type: 'b2b',
+          is_oda: csvBoolean(row.is_oda), is_remote: csvBoolean(row.is_remote), is_mall: csvBoolean(row.is_mall),
+          is_sez: csvBoolean(row.is_sez), is_airport: csvBoolean(row.is_airport), is_high_security: csvBoolean(row.is_high_security),
+          updated_at: new Date().toISOString(),
+        }
+        if (existing) { Object.assign(existing, values); updated += 1 }
+        else { state.zoneMappings.push({ id: `b2b-pincode-${randomUUID()}`, ...values, created_at: new Date().toISOString() }); inserted += 1 }
+      }
+      if (!inserted && !updated) return send({ success: false, message: 'No valid pincodes were found for this zone.', skipped }, 400)
+      save()
+      return send({ success: true, inserted, updated, skipped, message: `${inserted + updated} pincode attribute row(s) imported.` })
+    }
+    const b2bPincodeMatch = path.match(/^\/api\/admin\/b2b\/pincodes\/([^/]+)$/)
+    if (b2bPincodeMatch && ['PUT', 'DELETE'].includes(req.method)) {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const index = state.zoneMappings.findIndex((item) => item.id === b2bPincodeMatch[1] && normalizeBusinessType(item.business_type) === 'b2b')
+      if (index < 0) return send({ success: false, message: 'B2B pincode not found.' }, 404)
+      if (req.method === 'DELETE') { state.zoneMappings.splice(index, 1); save(); return send({ success: true }) }
+      const mapping = state.zoneMappings[index]
+      const flags = body.flags || {}
+      Object.assign(mapping, body, {
+        id: mapping.id,
+        is_oda: Boolean(flags.isOda ?? body.is_oda ?? mapping.is_oda), is_remote: Boolean(flags.isRemote ?? body.is_remote ?? mapping.is_remote),
+        is_mall: Boolean(flags.isMall ?? body.is_mall ?? mapping.is_mall), is_sez: Boolean(flags.isSez ?? body.is_sez ?? mapping.is_sez),
+        is_airport: Boolean(flags.isAirport ?? body.is_airport ?? mapping.is_airport), is_high_security: Boolean(flags.isHighSecurity ?? body.is_high_security ?? mapping.is_high_security),
+        updated_at: new Date().toISOString(),
+      })
+      delete mapping.flags
+      save(); return send({ success: true, data: mapping })
+    }
+    if (path === '/api/admin/b2b/pincodes/bulk-delete' && req.method === 'POST') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const ids = new Set(Array.isArray(body.ids) ? body.ids : [])
+      const before = state.zoneMappings.length
+      state.zoneMappings = state.zoneMappings.filter((item) => !ids.has(item.id))
+      save(); return send({ success: true, deleted: before - state.zoneMappings.length })
+    }
+    if (path === '/api/admin/b2b/pincodes/bulk-move' && req.method === 'POST') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const ids = new Set(Array.isArray(body.ids) ? body.ids : [])
+      let updated = 0
+      for (const mapping of state.zoneMappings) if (ids.has(mapping.id)) { mapping.zone_id = body.targetZoneId; updated += 1 }
+      save(); return send({ success: true, updated })
+    }
+    if (path === '/api/admin/b2b/pincodes/bulk-update-flags' && req.method === 'POST') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const ids = new Set(Array.isArray(body.ids) ? body.ids : [])
+      const flags = body.flags || {}
+      const map = { isOda: 'is_oda', isRemote: 'is_remote', isMall: 'is_mall', isSez: 'is_sez', isAirport: 'is_airport', isHighSecurity: 'is_high_security' }
+      let updated = 0
+      for (const mapping of state.zoneMappings) {
+        if (!ids.has(mapping.id)) continue
+        for (const [source, target] of Object.entries(map)) if (flags[source] !== undefined) mapping[target] = Boolean(flags[source])
+        updated += 1
+      }
+      save(); return send({ success: true, updated })
     }
 
     if (path === '/api/admin/b2b/states' && req.method === 'GET') {
@@ -1772,6 +2048,46 @@ http.createServer(async (req, res) => {
       const rate = { ...body, id: `b2b-zone-rate-${randomUUID()}`, originZoneId, origin_zone_id: originZoneId, destinationZoneId, destination_zone_id: destinationZoneId, courier_id: Number(body.courier_id || DEFAULT_MANUAL_COURIER_ID), service_provider: body.service_provider || 'manual', plan_id: body.plan_id || 'starter-b2b', ratePerKg, rate_per_kg: ratePerKg, updated_at: new Date().toISOString() }
       state.b2bZoneRates.push(rate); save(); return send({ success: true, data: rate }, 201)
     }
+    if (path === '/api/admin/b2b/zone-rates/import' && req.method === 'POST') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const { headers, records } = uploadedCsv(body)
+      requireCsvHeaders(headers, ['origin_zone_code', 'destination_zone_code', 'rate_per_kg'])
+      const scope = {
+        courierId: Number(importScopeValue(body, 'courier_id', DEFAULT_MANUAL_COURIER_ID)),
+        serviceProvider: importScopeValue(body, 'service_provider', 'manual').toLowerCase(),
+        planId: importScopeValue(body, 'plan_id', 'starter-b2b'),
+      }
+      let inserted = 0
+      let updated = 0
+      const skipped = []
+      for (const row of records) {
+        const origin = csvZone(row.origin_zone_code, 'b2b')
+        const destination = csvZone(row.destination_zone_code, 'b2b')
+        const ratePerKg = csvNumber(row.rate_per_kg)
+        if (!origin || !destination || ratePerKg === null || ratePerKg < 0) {
+          skipped.push({ row: row.__row, reason: !origin || !destination ? 'Unknown origin or destination zone.' : 'Invalid rate_per_kg.' })
+          continue
+        }
+        const values = {
+          originZoneId: origin.id, origin_zone_id: origin.id,
+          destinationZoneId: destination.id, destination_zone_id: destination.id,
+          courier_id: scope.courierId, service_provider: scope.serviceProvider, plan_id: scope.planId,
+          ratePerKg, rate_per_kg: ratePerKg,
+          min_charge: csvNumber(row.min_charge), max_weight_limit: csvNumber(row.max_weight_limit),
+          updated_at: new Date().toISOString(),
+        }
+        const existing = state.b2bZoneRates.find((item) => (
+          (item.originZoneId || item.origin_zone_id) === origin.id &&
+          (item.destinationZoneId || item.destination_zone_id) === destination.id &&
+          sameImportScope(item, scope)
+        ))
+        if (existing) { Object.assign(existing, values); updated += 1 }
+        else { state.b2bZoneRates.push({ id: `b2b-zone-rate-${randomUUID()}`, ...values, created_at: new Date().toISOString() }); inserted += 1 }
+      }
+      if (!inserted && !updated) return send({ success: false, message: 'No valid B2B rate rows were found in the CSV.', skipped }, 400)
+      save()
+      return send({ success: true, inserted, updated, skipped, message: `${inserted + updated} B2B rate row(s) imported.` })
+    }
     const b2bZoneRateMatch = path.match(/^\/api\/admin\/b2b\/zone-rates\/([^/]+)$/)
     if (b2bZoneRateMatch && req.method === 'PUT') {
       if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
@@ -1785,6 +2101,168 @@ http.createServer(async (req, res) => {
       save(); return send({ success: true })
     }
 
+    if (path === '/api/admin/b2b/additional-charges' && req.method === 'GET') {
+      const scope = {
+        courierId: importScopeValue(Object.fromEntries(requestUrl.searchParams), 'courier_id'),
+        serviceProvider: importScopeValue(Object.fromEntries(requestUrl.searchParams), 'service_provider').toLowerCase(),
+        planId: importScopeValue(Object.fromEntries(requestUrl.searchParams), 'plan_id'),
+      }
+      const charges = state.b2bAdditionalCharges.find((item) => sameImportScope(item, scope))
+      return charges ? send({ success: true, data: charges }) : send({})
+    }
+    if (path === '/api/admin/b2b/additional-charges' && req.method === 'POST') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const normalized = normalizedChargePayload(body)
+      const scope = {
+        courierId: importScopeValue(normalized, 'courier_id'),
+        serviceProvider: importScopeValue(normalized, 'service_provider').toLowerCase(),
+        planId: importScopeValue(normalized, 'plan_id'),
+      }
+      if (!scope.planId) return send({ success: false, message: 'Plan is required for overhead charges.' }, 400)
+      let charges = state.b2bAdditionalCharges.find((item) => sameImportScope(item, scope))
+      if (charges) Object.assign(charges, normalized, { updated_at: new Date().toISOString() })
+      else {
+        charges = { id: `b2b-charges-${randomUUID()}`, ...normalized, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }
+        state.b2bAdditionalCharges.push(charges)
+      }
+      save(); return send({ success: true, data: charges, message: 'Overhead charges saved.' })
+    }
+    if (path === '/api/admin/b2b/additional-charges/import' && req.method === 'POST') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const { headers, records } = uploadedCsv(body)
+      const supported = headers.filter((header) => !['courier_id', 'service_provider', 'plan_id'].includes(header))
+      if (!supported.length) return send({ success: false, message: 'The CSV has no overhead charge columns.' }, 400)
+      let inserted = 0
+      let updated = 0
+      const skipped = []
+      for (const row of records) {
+        if (row.courier_id && !Number.isFinite(Number(row.courier_id))) { skipped.push({ row: row.__row, reason: 'Invalid courier ID.' }); continue }
+        const scope = {
+          courierId: importScopeValue(row, 'courier_id', importScopeValue(body, 'courier_id')),
+          serviceProvider: importScopeValue(row, 'service_provider', importScopeValue(body, 'service_provider')).toLowerCase(),
+          planId: importScopeValue(row, 'plan_id', importScopeValue(body, 'plan_id')),
+        }
+        if (!scope.planId || (!scope.courierId && !scope.serviceProvider)) { skipped.push({ row: row.__row, reason: 'Plan and courier scope are required.' }); continue }
+        const values = { courier_id: scope.courierId, service_provider: scope.serviceProvider, plan_id: scope.planId, updated_at: new Date().toISOString() }
+        for (const header of supported) {
+          const rawValue = row[header]
+          if (rawValue === '') continue
+          if (header.endsWith('_method')) values[header] = rawValue
+          else {
+            const number = csvNumber(rawValue)
+            if (number !== null) values[header] = number
+          }
+        }
+        let charges = state.b2bAdditionalCharges.find((item) => sameImportScope(item, scope))
+        if (charges) { Object.assign(charges, values); updated += 1 }
+        else { charges = { id: `b2b-charges-${randomUUID()}`, ...values, created_at: new Date().toISOString() }; state.b2bAdditionalCharges.push(charges); inserted += 1 }
+      }
+      if (!inserted && !updated) return send({ success: false, message: 'No valid overhead charge rows were found.', skipped }, 400)
+      save(); return send({ success: true, inserted, updated, skipped, message: `${inserted + updated} overhead charge row(s) imported.` })
+    }
+
+    if (path === '/api/admin/couriers/shipping-rates/import' && req.method === 'POST') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const { headers, records } = uploadedCsv(body)
+      const businessType = normalizeBusinessType(requestUrl.searchParams.get('businessType') || 'b2c')
+      const planId = String(requestUrl.searchParams.get('planId') || (businessType === 'b2b' ? 'starter-b2b' : 'starter-b2c'))
+      const fixedCourierId = String(requestUrl.searchParams.get('courierId') || '')
+      const fixedCourierName = String(requestUrl.searchParams.get('courierName') || '')
+      const fixedProvider = String(requestUrl.searchParams.get('serviceProvider') || '').toLowerCase()
+      let savedRows = 0
+      const skipped = []
+
+      if (businessType === 'b2b') {
+        requireCsvHeaders(headers, ['courier_id'])
+        for (const row of records) {
+          const courierId = Number(row.courier_id || fixedCourierId)
+          if (!Number.isFinite(courierId)) { skipped.push({ row: row.__row, reason: 'Invalid courier ID.' }); continue }
+          const courierName = row.courier_name || fixedCourierName || state.manualCouriers.find((item) => Number(item.courierId) === courierId)?.displayName || ''
+          const serviceProvider = String(row.service_provider || fixedProvider || 'manual').toLowerCase()
+          const rates = {}
+          let zoneValueCount = 0
+          for (const zone of state.zones.filter((item) => normalizeBusinessType(item.business_type) === 'b2b')) {
+            const key = csvHeaderKey(zone.name)
+            const forward = csvNumber(row[`${key}_per_kg_forward`])
+            const rto = csvNumber(row[`${key}_per_kg_rto`])
+            if (forward !== null || rto !== null) zoneValueCount += 1
+            rates[zone.name] = { forward_per_kg: forward ?? 0, rto_per_kg: rto ?? forward ?? 0, min_weight: csvNumber(row.min_weight) ?? 0 }
+          }
+          if (!zoneValueCount) { skipped.push({ row: row.__row, reason: 'No zone rate values found.' }); continue }
+          const scope = { courierId, serviceProvider, planId }
+          let rate = state.shippingRates.find((item) => normalizeBusinessType(item.businessType) === 'b2b' && sameImportScope(item, scope))
+          const values = {
+            courier_id: courierId, courier_name: courierName, service_provider: serviceProvider, plan_id: planId,
+            businessType: 'b2b', mode: row.mode || 'surface', min_weight: csvNumber(row.min_weight) ?? 0,
+            cod_charges: csvNumber(row.cod_charges) ?? 0, cod_percent: csvNumber(row.cod_percent) ?? 0,
+            other_charges: csvNumber(row.other_charges) ?? 0, rates, updated_at: new Date().toISOString(),
+          }
+          if (rate) Object.assign(rate, values)
+          else { rate = { id: `rate-${randomUUID()}`, ...values, created_at: new Date().toISOString() }; state.shippingRates.push(rate) }
+          savedRows += 1
+        }
+      } else {
+        requireCsvHeaders(headers, ['weight_kg'])
+        const groups = new Map()
+        for (const row of records) {
+          const courierId = Number(fixedCourierId || row.courier_id)
+          if (!Number.isFinite(courierId)) { skipped.push({ row: row.__row, reason: 'Invalid courier ID.' }); continue }
+          const serviceProvider = String(fixedProvider || row.service_provider || 'manual').toLowerCase()
+          const mode = String(row.mode || 'standard').toLowerCase()
+          const weight = csvNumber(row.weight_kg)
+          if (weight === null || weight <= 0) { skipped.push({ row: row.__row, reason: 'Invalid slab weight.' }); continue }
+          const key = `${courierId}|${serviceProvider}|${mode}`
+          if (!groups.has(key)) groups.set(key, {
+            courierId, serviceProvider, mode,
+            courierName: fixedCourierName || row.courier || row.courier_name || state.manualCouriers.find((item) => Number(item.courierId) === courierId)?.displayName || '',
+            rows: [],
+          })
+          groups.get(key).rows.push({ ...row, weight })
+        }
+        for (const group of groups.values()) {
+          const scope = { courierId: group.courierId, serviceProvider: group.serviceProvider, planId }
+          let rate = state.shippingRates.find((item) => normalizeBusinessType(item.businessType) === 'b2c' && sameImportScope(item, scope) && String(item.mode || '') === group.mode)
+          const zoneSlabs = {}
+          const simpleRates = {}
+          for (const zone of state.zones.filter((item) => normalizeBusinessType(item.business_type) === 'b2c')) {
+            const zoneKey = csvHeaderKey(zone.name)
+            const forward = group.rows
+              .map((row) => ({ row, amount: csvNumber(row[zoneKey]) }))
+              .filter((item) => item.amount !== null)
+              .sort((a, b) => a.row.weight - b.row.weight)
+            if (!forward.length) continue
+            const forwardSlabs = forward.map(({ row, amount }, index) => ({
+              weight_from: index ? forward[index - 1].row.weight : 0,
+              weight_to: row.weight,
+              rate: amount,
+              extra_rate: amount,
+              extra_weight_unit: Math.max(0.001, row.weight - (index ? forward[index - 1].row.weight : 0)),
+            }))
+            const rtoSlabs = forwardSlabs.map((slab, index) => {
+              const percent = csvNumber(forward[index].row.rto_percent)
+              return { ...slab, rate: percent === null ? slab.rate : Number((slab.rate * percent / 100).toFixed(2)) }
+            })
+            zoneSlabs[zone.name] = { forward: forwardSlabs, rto: rtoSlabs }
+            simpleRates[zone.name] = { forward: forwardSlabs[0].rate, rto: rtoSlabs[0].rate }
+          }
+          if (!Object.keys(zoneSlabs).length) { skipped.push({ courier_id: group.courierId, reason: 'No zone rate values found.' }); continue }
+          const first = group.rows[0]
+          const values = {
+            courier_id: group.courierId, courier_name: group.courierName, service_provider: group.serviceProvider,
+            plan_id: planId, businessType: 'b2c', mode: group.mode, min_weight: Math.min(...group.rows.map((row) => row.weight)),
+            cod_charges: csvNumber(first.cod_rs) ?? 0, cod_percent: csvNumber(first.cod_percent) ?? 0,
+            rates: simpleRates, zone_slabs: zoneSlabs, updated_at: new Date().toISOString(),
+          }
+          if (rate) Object.assign(rate, values)
+          else { rate = { id: `rate-${randomUUID()}`, ...values, created_at: new Date().toISOString() }; state.shippingRates.push(rate) }
+          savedRows += group.rows.length
+        }
+      }
+
+      if (!savedRows) return send({ success: false, message: 'No valid shipping rate rows were found in the CSV.', skipped }, 400)
+      save()
+      return send({ success: true, data: { savedRows, skipped }, message: `${savedRows} shipping rate row(s) imported.` })
+    }
     if ((path === '/api/admin/couriers/shipping-rates' || path === '/api/couriers/shipping-rates') && req.method === 'GET') {
       const businessType = normalizeBusinessType(requestUrl.searchParams.get('businessType') || 'b2c')
       const planId = String(requestUrl.searchParams.get('planId') || '')
