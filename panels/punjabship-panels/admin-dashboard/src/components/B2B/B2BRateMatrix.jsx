@@ -466,7 +466,14 @@ const B2BRateMatrix = ({
                     fontWeight="semibold"
                     textAlign="center"
                   >
-                    {destZone.code}
+                    <Tooltip label={`${destZone.name} - ${(destZone.countries || [destZone.country || 'India']).join(', ')}`} hasArrow>
+                      <Box>
+                        <Text>{destZone.code}</Text>
+                        <Text fontSize="10px" fontWeight="normal" textTransform="none">
+                          {(destZone.countries || [destZone.country || 'India']).slice(0, 1).join('')}
+                        </Text>
+                      </Box>
+                    </Tooltip>
                   </Th>
                 ))}
               </Tr>
@@ -483,7 +490,14 @@ const B2BRateMatrix = ({
                     borderRight="1px solid"
                     borderColor={borderColor}
                   >
-                    {originZone.code}
+                    <Tooltip label={`${originZone.name} - ${(originZone.countries || [originZone.country || 'India']).join(', ')}`} hasArrow>
+                      <Box>
+                        <Text>{originZone.code}</Text>
+                        <Text fontSize="10px" color="gray.500">
+                          {(originZone.countries || [originZone.country || 'India']).slice(0, 1).join('')}
+                        </Text>
+                      </Box>
+                    </Tooltip>
                   </Td>
                   {zones.map((destZone) => {
                     const key = `${originZone.id}-${destZone.id}`
@@ -879,7 +893,7 @@ const AddRateModal = ({
                   >
                     {zones.map((zone) => (
                       <option key={zone.id} value={zone.id}>
-                        {zone.code} - {zone.name}
+                        {zone.code} - {zone.name} - {(zone.countries || [zone.country || 'India']).join(', ')}
                       </option>
                     ))}
                   </Select>
@@ -895,7 +909,7 @@ const AddRateModal = ({
                   >
                     {zones.map((zone) => (
                       <option key={zone.id} value={zone.id}>
-                        {zone.code} - {zone.name}
+                        {zone.code} - {zone.name} - {(zone.countries || [zone.country || 'India']).join(', ')}
                       </option>
                     ))}
                   </Select>
@@ -911,7 +925,7 @@ const AddRateModal = ({
                         </Text>
                         <Badge colorScheme="blue">{selectedOriginZone.code}</Badge>
                         <Text fontSize="sm" color="gray.500">
-                          {selectedOriginZone.name}
+                          {selectedOriginZone.name} - {(selectedOriginZone.countries || [selectedOriginZone.country || 'India']).join(', ')}
                         </Text>
                       </HStack>
                     )}
@@ -922,7 +936,7 @@ const AddRateModal = ({
                         </Text>
                         <Badge colorScheme="green">{selectedDestZone.code}</Badge>
                         <Text fontSize="sm" color="gray.500">
-                          {selectedDestZone.name}
+                          {selectedDestZone.name} - {(selectedDestZone.countries || [selectedDestZone.country || 'India']).join(', ')}
                         </Text>
                       </HStack>
                     )}

@@ -37,6 +37,7 @@ import { useZones } from 'hooks/useZones'
 import { useEffect, useState } from 'react'
 import { useHistory } from 'react-router-dom/cjs/react-router-dom.min'
 import { b2bAdminService } from 'services/b2bAdmin.service'
+import { COUNTRY_OPTIONS, getZoneCountries } from 'constants/countries'
 import { GenericTable } from 'views/Dashboard/Tables/components/GenericTable'
 
 const ZonesManagement = ({ defaultBusinessType = null }) => {
@@ -55,6 +56,8 @@ const ZonesManagement = ({ defaultBusinessType = null }) => {
     name: '',
     description: '',
     business_type: businessType,
+    country: 'India',
+    countries: ['India'],
     states: [],
   })
   const [isEdit, setIsEdit] = useState(false)
@@ -73,6 +76,10 @@ const ZonesManagement = ({ defaultBusinessType = null }) => {
   })
 
   const [stateSearch, setStateSearch] = useState('')
+  const [countrySearch, setCountrySearch] = useState('')
+  const filteredCountryOptions = COUNTRY_OPTIONS.filter((country) =>
+    country.label.toLowerCase().includes(countrySearch.trim().toLowerCase()),
+  )
   const filteredStateOptions = isB2B
     ? stateOptions.filter((state) =>
         state?.toLowerCase().includes(stateSearch.trim().toLowerCase()),
@@ -83,7 +90,7 @@ const ZonesManagement = ({ defaultBusinessType = null }) => {
   const zoneFilters = []
 
   // Validation state
-  const [errors, setErrors] = useState({ code: '', name: '', states: '' })
+  const [errors, setErrors] = useState({ code: '', name: '', countries: '', states: '' })
 
   useEffect(() => {
     // Reset form and errors when tab changes
@@ -94,10 +101,13 @@ const ZonesManagement = ({ defaultBusinessType = null }) => {
       description: '',
       business_type: businessType,
       is_global: true,
+      country: 'India',
+      countries: ['India'],
       states: [],
     })
-    setErrors({ code: '', name: '', states: '' })
+    setErrors({ code: '', name: '', countries: '', states: '' })
     setStateSearch('')
+    setCountrySearch('')
   }, [businessType])
 
   const openCreateModal = () => {
@@ -109,10 +119,13 @@ const ZonesManagement = ({ defaultBusinessType = null }) => {
       description: '',
       business_type: businessType,
       is_global: true,
+      country: 'India',
+      countries: ['India'],
       states: [],
     })
-    setErrors({ code: '', name: '', states: '' })
+    setErrors({ code: '', name: '', countries: '', states: '' })
     setStateSearch('')
+    setCountrySearch('')
     onOpen()
   }
 
@@ -120,16 +133,19 @@ const ZonesManagement = ({ defaultBusinessType = null }) => {
     setIsEdit(true)
     setZoneForm({
       ...zone,
+      country: getZoneCountries(zone)[0],
+      countries: getZoneCountries(zone),
       states: Array.isArray(zone.states) ? zone.states : zone.states ? [zone.states] : [],
     })
     // Zones are always global - no courier selection needed
-    setErrors({ code: '', name: '', states: '' })
+    setErrors({ code: '', name: '', countries: '', states: '' })
     setStateSearch('')
+    setCountrySearch('')
     onOpen()
   }
 
   const validateForm = () => {
-    const newErrors = { code: '', name: '', states: '' }
+    const newErrors = { code: '', name: '', countries: '', states: '' }
     let valid = true
 
     if (!zoneForm.code.trim()) {
@@ -140,8 +156,16 @@ const ZonesManagement = ({ defaultBusinessType = null }) => {
       newErrors.name = 'Zone name is required'
       valid = false
     }
+    if (!zoneForm.countries?.length) {
+      newErrors.countries = 'Select at least one country for this zone'
+      valid = false
+    }
     // Zones are always global - no courier selection needed (industry standard)
-    if (businessType === 'B2B' && (!zoneForm.states || zoneForm.states.length === 0)) {
+    if (
+      businessType === 'B2B' &&
+      zoneForm.countries?.includes('India') &&
+      (!zoneForm.states || zoneForm.states.length === 0)
+    ) {
       newErrors.states = 'Select at least one state for this zone'
       valid = false
     }
@@ -157,6 +181,7 @@ const ZonesManagement = ({ defaultBusinessType = null }) => {
     // Courier selection is only for rates, not zones
     const payload = {
       ...zoneForm,
+      country: zoneForm.countries[0],
       business_type: businessType,
     }
 
@@ -167,10 +192,13 @@ const ZonesManagement = ({ defaultBusinessType = null }) => {
         name: '',
         description: '',
         business_type: businessType,
+        country: 'India',
+        countries: ['India'],
         states: [],
       })
-      setErrors({ code: '', name: '', states: '' })
+      setErrors({ code: '', name: '', countries: '', states: '' })
       setStateSearch('')
+      setCountrySearch('')
       onClose()
     }
 
@@ -262,10 +290,11 @@ const ZonesManagement = ({ defaultBusinessType = null }) => {
                         'Code',
                         'Name',
                         'Description',
+                        'Countries',
                         'States',
                         'Created At',
                       ]
-                    : ['id', 'Code', 'Name', 'Description', 'Created At']
+                    : ['id', 'Code', 'Name', 'Description', 'Countries', 'Created At']
                 }
                 columnKeys={
                   businessType === 'B2B'
@@ -274,10 +303,11 @@ const ZonesManagement = ({ defaultBusinessType = null }) => {
                         'code',
                         'name',
                         'description',
+                        'countries',
                         'states',
                         'created_at',
                       ]
-                    : ['id', 'code', 'name', 'description', 'created_at']
+                    : ['id', 'code', 'name', 'description', 'countries', 'created_at']
                 }
                 loading={isLoading}
                 renderActions={(row) => (
@@ -321,6 +351,10 @@ const ZonesManagement = ({ defaultBusinessType = null }) => {
                       minute: '2-digit',
                     }),
                   name: (row) => <Text fontStyle="italic">{row}</Text>,
+                  countries: (value, row) => {
+                    const countries = Array.isArray(value) && value.length ? value : [row?.country || 'India']
+                    return countries.join(', ')
+                  },
                   states: (value) => {
                     if (!Array.isArray(value) || value.length === 0) return '-'
                     const visible = value.slice(0, 3)
@@ -374,10 +408,11 @@ const ZonesManagement = ({ defaultBusinessType = null }) => {
                     'Code',
                     'Name',
                     'Description',
+                    'Countries',
                     'States',
                     'Created At',
                   ]
-                : ['id', 'Code', 'Name', 'Description', 'Created At']
+                : ['id', 'Code', 'Name', 'Description', 'Countries', 'Created At']
             }
             columnKeys={
               businessType === 'B2B'
@@ -386,10 +421,11 @@ const ZonesManagement = ({ defaultBusinessType = null }) => {
                     'code',
                     'name',
                     'description',
+                    'countries',
                     'states',
                     'created_at',
                   ]
-                : ['id', 'code', 'name', 'description', 'created_at']
+                : ['id', 'code', 'name', 'description', 'countries', 'created_at']
             }
             loading={isLoading}
             renderActions={(row) => (
@@ -433,6 +469,10 @@ const ZonesManagement = ({ defaultBusinessType = null }) => {
                   minute: '2-digit',
                 }),
               name: (row) => <Text fontStyle="italic">{row}</Text>,
+              countries: (value, row) => {
+                const countries = Array.isArray(value) && value.length ? value : [row?.country || 'India']
+                return countries.join(', ')
+              },
               states: (value) => {
                 if (!Array.isArray(value) || value.length === 0) return '-'
                 const visible = value.slice(0, 3)
@@ -511,7 +551,49 @@ const ZonesManagement = ({ defaultBusinessType = null }) => {
             <FormHelperText>Helps teammates understand what this zone represents.</FormHelperText>
           </FormControl>
 
-          {businessType === 'B2B' && (
+          <FormControl isRequired isInvalid={Boolean(errors.countries)}>
+            <Flex align="center" justify="space-between" mb={2}>
+              <FormLabel m={0}>Countries in this zone</FormLabel>
+              <Text fontSize="sm" color="gray.500">
+                Selected: {zoneForm.countries?.length || 0}
+              </Text>
+            </Flex>
+            <Input
+              placeholder="Search countries..."
+              size="sm"
+              value={countrySearch}
+              onChange={(e) => setCountrySearch(e.target.value)}
+              mb={3}
+            />
+            <Box borderWidth="1px" borderRadius="md" maxH="220px" overflowY="auto" p={3}>
+              <CheckboxGroup
+                value={zoneForm.countries || []}
+                onChange={(values) => {
+                  const countries = Array.isArray(values) ? values.map(String) : []
+                  setZoneForm({
+                    ...zoneForm,
+                    country: countries[0] || '',
+                    countries,
+                    states: countries.includes('India') ? zoneForm.states : [],
+                  })
+                }}
+              >
+                <SimpleGrid columns={{ base: 1, sm: 2 }} spacingY={2} spacingX={3}>
+                  {filteredCountryOptions.map((country) => (
+                    <Checkbox key={country.value} value={country.value}>
+                      {country.label}
+                    </Checkbox>
+                  ))}
+                </SimpleGrid>
+              </CheckboxGroup>
+            </Box>
+            <FormHelperText>
+              Select India for domestic zones, or one or more destination countries for international rates.
+            </FormHelperText>
+            <FormErrorMessage>{errors.countries}</FormErrorMessage>
+          </FormControl>
+
+          {businessType === 'B2B' && zoneForm.countries?.includes('India') && (
             <Stack spacing={5} borderWidth="1px" borderRadius="lg" p={5} bg="blue.50">
               <Text fontWeight="semibold" fontSize="lg" color="blue.700">
                 B2B Zone Coverage

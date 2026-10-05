@@ -15,6 +15,7 @@ import {
 import { useUpdateShippingRate } from 'hooks/useCouriers'
 import { useEffect, useState } from 'react'
 import CustomModal from './CustomModal'
+import { formatZoneCountries } from 'constants/countries'
 
 const normalizeProvider = (value) => String(value || '').trim().toLowerCase()
 const RATE_CARD_PROVIDER_ALLOWLIST = new Set(['delhivery', 'manual', 'velocity'])
@@ -502,7 +503,7 @@ export const RateCardEditModal = ({
         {zones.map((zone) => (
           <Box key={zone.code} p={3} border="1px solid" borderColor="gray.200" borderRadius="md">
             <Text fontWeight="bold" mb={2}>
-              {zone.name}
+              {zone.name} - {formatZoneCountries(zone)}
             </Text>
             {isB2C ? (
               <Stack spacing={4}>

@@ -35,9 +35,18 @@ interface RateSlab {
 
 interface Zone {
   code: string
+  country?: string
+  countries?: string[]
   id?: string
   description?: string
   name: string
+}
+
+const formatZoneCountries = (zone: Zone) => {
+  const countries = zone.countries?.length ? zone.countries : [zone.country || 'India']
+  return countries.length > 2
+    ? `${countries.slice(0, 2).join(', ')} +${countries.length - 2}`
+    : countries.join(', ')
 }
 
 interface ShippingRate {
@@ -113,7 +122,10 @@ const CourierAccordion = ({ courier, zones }: { courier: ShippingRate; zones: Zo
           <TableBody>
             {zoneRows.map((zone) => (
               <TableRow key={zone.code || zone.name}>
-                <TableCell sx={{ fontWeight: 700, verticalAlign: 'top' }}>{zone.name}</TableCell>
+                <TableCell sx={{ verticalAlign: 'top' }}>
+                  <Typography variant="body2" fontWeight={700}>{zone.name}</Typography>
+                  <Typography variant="caption" color="text.secondary">{formatZoneCountries(zone)}</Typography>
+                </TableCell>
                 <TableCell sx={{ verticalAlign: 'top' }}><SlabList slabs={zone.forward} /></TableCell>
                 <TableCell sx={{ verticalAlign: 'top' }}><SlabList slabs={zone.rto} /></TableCell>
               </TableRow>
@@ -149,7 +161,7 @@ const B2BClientTable = ({ data, zones }: { data: ShippingRate[]; zones: Zone[] }
               <TableBody>
                 {zones.map((zone) => {
                   const rates = courier.rates?.[zone.name] || {}
-                  return <TableRow key={zone.code}><TableCell>{zone.name}</TableCell><TableCell>{formatMoney(rates.forward_per_kg)}</TableCell><TableCell>{formatMoney(rates.rto_per_kg)}</TableCell><TableCell>{rates.min_weight ?? courier.min_weight ?? 'NA'} kg</TableCell></TableRow>
+                  return <TableRow key={zone.code}><TableCell><Typography variant="body2" fontWeight={700}>{zone.name}</Typography><Typography variant="caption" color="text.secondary">{formatZoneCountries(zone)}</Typography></TableCell><TableCell>{formatMoney(rates.forward_per_kg)}</TableCell><TableCell>{formatMoney(rates.rto_per_kg)}</TableCell><TableCell>{rates.min_weight ?? courier.min_weight ?? 'NA'} kg</TableCell></TableRow>
                 })}
               </TableBody>
             </Table>
@@ -178,10 +190,10 @@ const RateCard = () => {
         const forwardSlabs = rate.zone_slabs?.[zone.name]?.forward || []
         const rtoSlabs = rate.zone_slabs?.[zone.name]?.rto || []
         if (businessType === 'b2b') {
-          base[`${zone.name} (Per Kg)`] = `F: ${formatMoney(zoneRates.forward_per_kg)} | RTO: ${formatMoney(zoneRates.rto_per_kg)}`
+          base[`${zone.name} - ${formatZoneCountries(zone)} (Per Kg)`] = `F: ${formatMoney(zoneRates.forward_per_kg)} | RTO: ${formatMoney(zoneRates.rto_per_kg)}`
         } else {
-          base[`${zone.name} (Forward Slabs)`] = forwardSlabs.length ? forwardSlabs.map((slab) => `${slab.weight_from}-${slab.weight_to ?? '+'}kg: ${formatMoney(slab.rate)}`).join(' ; ') : formatMoney(zoneRates.forward)
-          base[`${zone.name} (RTO Slabs)`] = rtoSlabs.length ? rtoSlabs.map((slab) => `${slab.weight_from}-${slab.weight_to ?? '+'}kg: ${formatMoney(slab.rate)}`).join(' ; ') : formatMoney(zoneRates.rto)
+          base[`${zone.name} - ${formatZoneCountries(zone)} (Forward Slabs)`] = forwardSlabs.length ? forwardSlabs.map((slab) => `${slab.weight_from}-${slab.weight_to ?? '+'}kg: ${formatMoney(slab.rate)}`).join(' ; ') : formatMoney(zoneRates.forward)
+          base[`${zone.name} - ${formatZoneCountries(zone)} (RTO Slabs)`] = rtoSlabs.length ? rtoSlabs.map((slab) => `${slab.weight_from}-${slab.weight_to ?? '+'}kg: ${formatMoney(slab.rate)}`).join(' ; ') : formatMoney(zoneRates.rto)
         }
       })
       base['COD Charges'] = rate.cod_charges ?? 'NA'

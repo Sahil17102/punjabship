@@ -3,6 +3,7 @@ import { Badge, Box, Flex, IconButton, Text } from '@chakra-ui/react'
 import { useDeleteB2CZone } from 'hooks/useCouriers'
 import { useMemo } from 'react'
 import { GenericTable } from 'views/Dashboard/Tables/components/GenericTable'
+import { formatZoneCountries } from 'constants/countries'
 
 export const B2CTable = ({ data, zones, onEdit, planId, loading }) => {
   const deleteB2CZoneMutation = useDeleteB2CZone(planId)
@@ -18,7 +19,7 @@ export const B2CTable = ({ data, zones, onEdit, planId, loading }) => {
     const zoneColumns =
       zones?.map((zone) => ({
         key: zone.code,
-        label: `${zone.name} (F | RTO)`,
+        label: `${zone.name} - ${formatZoneCountries(zone)} (F | RTO)`,
         width: '180px',
         renderer: (_, row) => {
           const rates = row.rates?.[zone.name] || {}

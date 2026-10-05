@@ -16,8 +16,9 @@ import {
   useColorModeValue,
 } from '@chakra-ui/react'
 import { useDeleteB2BCourier, useDeleteB2BZone } from 'hooks/useCouriers'
+import { formatZoneCountries } from 'constants/countries'
 
-export const B2BTable = ({ data, onEdit, planId }) => {
+export const B2BTable = ({ data, zones = [], onEdit, planId }) => {
   const deleteB2BZoneMutation = useDeleteB2BZone(planId)
   const deleteB2BCourierMutation = useDeleteB2BCourier(planId)
 
@@ -130,7 +131,12 @@ export const B2BTable = ({ data, onEdit, planId }) => {
                 <Tbody>
                   {courierZones?.map((zone) => (
                     <Tr key={zone.name}>
-                      <Td>{zone.name}</Td>
+                      <Td>
+                        <Text fontWeight="semibold">{zone.name}</Text>
+                        <Text fontSize="xs" color="gray.500">
+                          {formatZoneCountries(zones.find((item) => item.name === zone.name) || {})}
+                        </Text>
+                      </Td>
                       <Td>₹{zone.rates.forward ?? 'NA'}</Td>
                       <Td>₹{zone.rates.rto ?? 'NA'}</Td>
                       <Td>{zone.rates.min_weight ?? courier.min_weight ?? 'NA'} kg</Td>

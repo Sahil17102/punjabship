@@ -63,7 +63,7 @@ const DEFAULT_B2C_ZONES = [
   { id: 'b2c-metro', code: 'C', name: 'Metro', description: 'Major metro destination', business_type: 'b2c', is_active: true },
   { id: 'b2c-roi', code: 'D', name: 'Rest of India', description: 'All standard India destinations', business_type: 'b2c', is_active: true },
   { id: 'b2c-special', code: 'E', name: 'Special', description: 'North East, Jammu & Kashmir and island destinations', business_type: 'b2c', is_active: true },
-]
+].map((zone) => ({ ...zone, country: 'India', countries: ['India'] }))
 const DEFAULT_B2B_ZONES = [
   { id: 'b2b-north', code: 'N', name: 'North', description: 'North India', states: ['Punjab', 'Haryana', 'Himachal Pradesh', 'Delhi', 'Uttar Pradesh', 'Uttarakhand', 'Chandigarh', 'Rajasthan'], business_type: 'b2b', is_active: true },
   { id: 'b2b-west', code: 'W', name: 'West', description: 'West India', states: ['Gujarat', 'Maharashtra', 'Goa', 'Dadra & Nagar Haveli', 'Daman & Diu'], business_type: 'b2b', is_active: true },
@@ -71,7 +71,19 @@ const DEFAULT_B2B_ZONES = [
   { id: 'b2b-east', code: 'E', name: 'East', description: 'East India', states: ['West Bengal', 'Odisha', 'Bihar', 'Jharkhand'], business_type: 'b2b', is_active: true },
   { id: 'b2b-central', code: 'C', name: 'Central', description: 'Central India', states: ['Madhya Pradesh', 'Chhattisgarh'], business_type: 'b2b', is_active: true },
   { id: 'b2b-northeast', code: 'NE', name: 'North East', description: 'North East and special destinations', states: ['Assam', 'Arunachal Pradesh', 'Manipur', 'Meghalaya', 'Mizoram', 'Nagaland', 'Sikkim', 'Tripura', 'Jammu & Kashmir', 'Ladakh', 'Andaman & Nicobar Islands'], business_type: 'b2b', is_active: true },
-]
+].map((zone) => ({ ...zone, country: 'India', countries: ['India'] }))
+
+const normalizeZoneCountries = (zone = {}) => {
+  const countries = (Array.isArray(zone.countries) ? zone.countries : [zone.country])
+    .map((country) => String(country || '').trim())
+    .filter(Boolean)
+  return [...new Set(countries.length ? countries : ['India'])]
+}
+
+const withNormalizedZoneCountries = (zone = {}) => {
+  const countries = normalizeZoneCountries(zone)
+  return { ...zone, country: countries[0], countries }
+}
 
 const defaultManualCourier = () => ({
   id: 'manual-punjabship', courierId: DEFAULT_MANUAL_COURIER_ID, code: 'PUNJABSHIP',
@@ -388,6 +400,14 @@ for (const zone of [...DEFAULT_B2C_ZONES, ...DEFAULT_B2B_ZONES]) {
   const existingZone = state.zones.find((item) => item.id === zone.id)
   if (!existingZone) state.zones.push(zone)
   else if (zone.states?.length && !existingZone.states?.length) existingZone.states = zone.states
+}
+for (let index = 0; index < state.zones.length; index += 1) {
+  const zone = state.zones[index]
+  const normalized = withNormalizedZoneCountries(zone)
+  if (zone.country !== normalized.country || !Array.isArray(zone.countries)) {
+    state.zones[index] = normalized
+    stateNeedsSave = true
+  }
 }
 if (!state.shippingRates.some((item) => item.id === 'rate-punjabship-b2c')) state.shippingRates.push(defaultB2cRate())
 if (!state.shippingRates.some((item) => item.id === 'rate-punjabship-b2b')) state.shippingRates.push(defaultB2bRate())
@@ -1804,7 +1824,7 @@ http.createServer(async (req, res) => {
     if (path === '/api/admin/zones' && req.method === 'POST') {
       if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
       if (!body.name || !body.code) return send({ success: false, message: 'Zone name and code are required.' }, 400)
-      const zone = { ...body, id: body.id || `zone-${randomUUID()}`, business_type: normalizeBusinessType(body.business_type || body.businessType), is_active: body.is_active !== false }
+      const zone = withNormalizedZoneCountries({ ...body, id: body.id || `zone-${randomUUID()}`, business_type: normalizeBusinessType(body.business_type || body.businessType), is_active: body.is_active !== false })
       state.zones.push(zone); save(); return send(zone, 201)
     }
     const zoneMappingsMatch = path.match(/^\/api\/admin\/zones\/([^/]+)\/mappings$/)
@@ -1881,7 +1901,7 @@ http.createServer(async (req, res) => {
     if (zoneMatch && req.method === 'PUT') {
       if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
       const zone = state.zones.find((item) => item.id === zoneMatch[1]); if (!zone) return send({ message: 'Zone not found.' }, 404)
-      Object.assign(zone, body, { id: zone.id }); save(); return send(zone)
+      Object.assign(zone, withNormalizedZoneCountries({ ...zone, ...body }), { id: zone.id }); save(); return send(zone)
     }
     if (zoneMatch && req.method === 'DELETE') {
       if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
@@ -2010,7 +2030,7 @@ http.createServer(async (req, res) => {
     if (path === '/api/admin/b2b/zones' && req.method === 'POST') {
       if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
       if (!String(body.name || '').trim() || !String(body.code || '').trim()) return send({ success: false, message: 'Zone name and code are required.' }, 400)
-      const zone = { ...body, id: body.id || `b2b-zone-${randomUUID()}`, code: String(body.code).trim().toUpperCase(), name: String(body.name).trim(), business_type: 'b2b', states: Array.isArray(body.states) ? body.states : [], is_active: body.is_active !== false, created_at: new Date().toISOString() }
+      const zone = withNormalizedZoneCountries({ ...body, id: body.id || `b2b-zone-${randomUUID()}`, code: String(body.code).trim().toUpperCase(), name: String(body.name).trim(), business_type: 'b2b', states: Array.isArray(body.states) ? body.states : [], is_active: body.is_active !== false, created_at: new Date().toISOString() })
       state.zones.push(zone); save(); return send({ success: true, data: zone }, 201)
     }
     const b2bZoneMatch = path.match(/^\/api\/admin\/b2b\/zones\/([^/]+)$/)
@@ -2018,7 +2038,7 @@ http.createServer(async (req, res) => {
       if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
       const zone = state.zones.find((item) => item.id === b2bZoneMatch[1] && normalizeBusinessType(item.business_type) === 'b2b')
       if (!zone) return send({ success: false, message: 'B2B zone not found.' }, 404)
-      Object.assign(zone, body, { id: zone.id, business_type: 'b2b', updated_at: new Date().toISOString() }); save(); return send({ success: true, data: zone })
+      Object.assign(zone, withNormalizedZoneCountries({ ...zone, ...body }), { id: zone.id, business_type: 'b2b', updated_at: new Date().toISOString() }); save(); return send({ success: true, data: zone })
     }
     if (b2bZoneMatch && req.method === 'DELETE') {
       if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
