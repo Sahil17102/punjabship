@@ -801,6 +801,8 @@ const orderForPanels = (order) => {
     city: order.city || order.consignee?.city || order.shipping_details?.city || '',
     state: order.state || order.consignee?.state || order.shipping_details?.state || '',
     pincode: order.pincode || order.consignee?.pincode || order.shipping_details?.pincode || '',
+    country: order.country || order.consignee?.country || order.shipping_details?.country || 'India',
+    country_code: order.country_code || order.consignee?.country_code || 'IN',
     order_type: order.order_type || order.payment_type || 'prepaid',
     order_status: order.order_status || order.status || 'pending',
     order_date: order.order_date || order.created_at,
@@ -941,6 +943,21 @@ const locationFields = (pincode) => {
   const office = officeForPincode(pincode)
   return { city: office?.area || office?.district || '', state: office?.state || '' }
 }
+const normalizeCountryCode = (value) => String(value || 'IN').trim().toUpperCase()
+const countryDisplayNames = new Intl.DisplayNames(['en'], { type: 'region' })
+const countryNameFromCode = (value) => {
+  const code = normalizeCountryCode(value)
+  try { return countryDisplayNames.of(code) || code } catch { return code }
+}
+const zoneForCountry = (businessType, countryCode) => {
+  const code = normalizeCountryCode(countryCode)
+  const name = countryNameFromCode(code).toLowerCase()
+  return state.zones.find((zone) => {
+    if (normalizeBusinessType(zone.business_type) !== businessType) return false
+    const countries = normalizeZoneCountries(zone).map((country) => String(country).trim().toLowerCase())
+    return countries.includes(code.toLowerCase()) || countries.includes(name)
+  })
+}
 const normalizedState = (pincode) => String(officeForPincode(pincode)?.state || '').trim().toLowerCase()
 const SPECIAL_STATES = new Set(['andaman & nicobar islands', 'arunachal pradesh', 'assam', 'jammu & kashmir', 'ladakh', 'manipur', 'meghalaya', 'mizoram', 'nagaland', 'sikkim', 'tripura'])
 const METRO_PREFIXES = ['110', '122', '201', '400', '560', '600', '700', '500', '411', '380']
@@ -965,7 +982,12 @@ const b2bZoneFor = (destination) => {
   const name = SPECIAL_STATES.has(stateName) ? 'North East' : (B2B_STATE_ZONE[stateName] || 'North East')
   return state.zones.find((item) => item.business_type === 'b2b' && item.name === name)
 }
-const courierSupportsRoute = (courier, origin, destination, shipmentType, paymentType, weightKg) => {
+const zoneForShipmentDestination = (shipmentType, destination, destinationCountryCode) => {
+  const code = normalizeCountryCode(destinationCountryCode)
+  if (code !== 'IN') return zoneForCountry(shipmentType, code)
+  return shipmentType === 'b2b' ? b2bZoneFor(destination) : null
+}
+const courierSupportsRoute = (courier, origin, destination, shipmentType, paymentType, weightKg, originCountryCode, destinationCountryCode) => {
   if (!courier.isEnabled) return false
   if (shipmentType === 'b2b' ? !courier.supportsB2b : !courier.supportsB2c) return false
   if (paymentType === 'cod' ? !courier.supportsCod : !courier.supportsPrepaid) return false
@@ -973,6 +995,11 @@ const courierSupportsRoute = (courier, origin, destination, shipmentType, paymen
   // below it (including a temporarily missing/zero UI weight) are quoted at the
   // minimum chargeable weight by manualCourierQuote below.
   if (weightKg > Number(courier.maxWeightKg || Infinity)) return false
+  const originCountry = normalizeCountryCode(originCountryCode)
+  const destinationCountry = normalizeCountryCode(destinationCountryCode)
+  if (originCountry !== 'IN' || destinationCountry !== 'IN') {
+    return originCountry === 'IN' && Boolean(zoneForCountry(shipmentType, destinationCountry))
+  }
   if (courier.pincodeScope === 'all_india') return Boolean(officeForPincode(origin) && officeForPincode(destination))
   const covered = new Set(normalizePincodes(courier.pincodes))
   return covered.has(String(origin)) && covered.has(String(destination))
@@ -991,13 +1018,29 @@ const manualCourierQuote = (courier, rate, body) => {
   const destination = String(body.destination || body.deliveryPincode || '')
   const weightKg = Math.max(0, Number(body.weight || 0) / 1000)
   const paymentType = String(body.payment_type || (Number(body.cod) ? 'cod' : 'prepaid')).toLowerCase()
-  if (!courierSupportsRoute(courier, origin, destination, shipmentType, paymentType, weightKg)) return null
-  const zone = shipmentType === 'b2b' ? b2bZoneFor(destination) : b2cZoneFor(origin, destination)
+  const originCountryCode = normalizeCountryCode(body.pickupCountryCode || body.pickup_country_code || 'IN')
+  const destinationCountryCode = normalizeCountryCode(body.deliveryCountryCode || body.delivery_country_code || body.country_code || 'IN')
+  if (!courierSupportsRoute(courier, origin, destination, shipmentType, paymentType, weightKg, originCountryCode, destinationCountryCode)) return null
+  const zone = destinationCountryCode === 'IN'
+    ? (shipmentType === 'b2b' ? b2bZoneFor(destination) : b2cZoneFor(origin, destination))
+    : zoneForShipmentDestination(shipmentType, destination, destinationCountryCode)
   if (!zone) return null
   const chargeableWeight = Math.max(weightKg, Number(rate.min_weight || courier.minWeightKg || 0.5))
   const zoneRate = rate.rates?.[zone.name] || {}
+  const originZone = shipmentType === 'b2b'
+    ? (originCountryCode === 'IN' ? b2bZoneFor(origin) : zoneForCountry('b2b', originCountryCode))
+    : null
+  const matrixRate = shipmentType === 'b2b' && originZone
+    ? state.b2bZoneRates.find((item) => (
+        String(item.originZoneId || item.origin_zone_id) === String(originZone.id) &&
+        String(item.destinationZoneId || item.destination_zone_id) === String(zone.id) &&
+        String(item.courier_id) === String(courier.courierId) &&
+        (!rate.plan_id || !item.plan_id || String(item.plan_id) === String(rate.plan_id))
+      ))
+    : null
+  const b2bPerKg = Number(matrixRate?.rate_per_kg ?? matrixRate?.ratePerKg ?? zoneRate.forward_per_kg ?? 0)
   const freight = shipmentType === 'b2b'
-    ? chargeableWeight * Number(zoneRate.forward_per_kg || 0)
+    ? chargeableWeight * b2bPerKg
     : calculateB2cFreight(rate, zone.name, chargeableWeight)
   if (!Number.isFinite(freight) || freight <= 0) return null
   const orderAmount = Number(body.order_amount || body.orderAmount || 0)
@@ -1019,7 +1062,7 @@ const manualCourierQuote = (courier, rate, body) => {
     cod_charges: codCharge, other_charges: other, gst_percent: 18, gst_amount: gstAmount,
     total_charges_without_gst: subtotal, total_charges_with_gst: total,
     total_charges: total, wallet_debit_amount: total, booking_available: true, can_book: true,
-    approxZone: { id: zone.id, code: zone.code, name: zone.name }, zone_id: zone.id,
+    approxZone: { id: zone.id, code: zone.code, name: zone.name, country: countryNameFromCode(destinationCountryCode), countries: normalizeZoneCountries(zone) }, zone_id: zone.id,
     localRates: { forward: { shipping_rate_id: rate.id, zone_id: zone.id, forward_charges: Number(freight.toFixed(2)), cod_charges: codCharge, other_charges: other, gst_percent: 18, gst_amount: gstAmount, total_charges: total, wallet_debit_amount: total } },
     provider_serviceability: { provider: 'PunjabShip Manual', booking_available: true, can_book: true },
     edd: shipmentType === 'b2b' ? '4-8 business days' : '2-6 business days',
@@ -1035,6 +1078,49 @@ const availableManualQuotes = (body) => {
 }
 
 const isManualCourierOrder = (body) => String(`${body?.integration_type || ''} ${body?.courier_partner || ''} ${body?.courier_option_key || ''}`).toLowerCase().includes('manual') || state.manualCouriers.some((item) => Number(item.courierId) === Number(body?.courier_id))
+const validateOrderPayload = (body, type) => {
+  const errors = []
+  const consignee = body?.consignee || {}
+  const countryCode = normalizeCountryCode(consignee.country_code || body.country_code)
+  const postalCode = String(consignee.pincode || '').trim()
+  if (!/^[A-Z]{2}$/.test(countryCode)) errors.push('consignee.country_code must be a valid 2-letter ISO code')
+  if (!String(consignee.name || '').trim()) errors.push('consignee.name is required')
+  if (!String(consignee.phone || '').trim()) errors.push('consignee.phone is required')
+  if (!String(consignee.address || consignee.address_line_1 || '').trim()) errors.push('consignee.address is required')
+  if (!String(consignee.city || '').trim()) errors.push('consignee.city is required')
+  if (!String(consignee.state || '').trim()) errors.push('consignee.state is required')
+  if (countryCode === 'IN') {
+    if (!/^[1-9]\d{5}$/.test(postalCode)) errors.push('India delivery pincode must be 6 digits')
+  } else if (!/^[A-Za-z0-9][A-Za-z0-9 -]{2,11}$/.test(postalCode)) {
+    errors.push('International delivery postal code is invalid')
+  }
+  if (!String(body?.order_number || '').trim()) errors.push('order_number is required')
+  if (type === 'b2c') {
+    for (const field of ['package_weight', 'package_length', 'package_breadth', 'package_height']) {
+      if (!Number.isFinite(Number(body?.[field])) || Number(body[field]) <= 0) errors.push(`${field} must be greater than 0`)
+    }
+    if (!Array.isArray(body?.order_items) || !body.order_items.length) errors.push('At least one order item is required')
+  } else {
+    if (!Array.isArray(body?.boxes) || !body.boxes.length) errors.push('At least one box is required')
+    for (const [index, box] of (body?.boxes || []).entries()) {
+      for (const field of ['lengthCm', 'breadthCm', 'heightCm', 'weightKg', 'quantity']) {
+        if (!Number.isFinite(Number(box?.[field])) || Number(box[field]) <= 0) errors.push(`boxes.${index}.${field} must be greater than 0`)
+      }
+    }
+  }
+  return { errors, countryCode, countryName: countryNameFromCode(countryCode) }
+}
+const withNormalizedOrderCountry = (body, validation) => ({
+  ...body,
+  country: validation.countryName,
+  country_code: validation.countryCode,
+  consignee: {
+    ...(body.consignee || {}),
+    country: validation.countryName,
+    country_code: validation.countryCode,
+  },
+  pickup: { ...(body.pickup || {}), country: 'India', country_code: normalizeCountryCode(body.pickup?.country_code || 'IN') },
+})
 const orderDestinationPincode = (order) => String(order.pincode || order.consignee?.pincode || order.shipping_details?.pincode || '')
 const orderPickupPincode = (order) => String(order.pickup?.pincode || order.pickup_details?.pincode || order.pickupLocationPincode || '')
 const manualShipmentRow = (shipment) => {
@@ -2505,16 +2591,19 @@ http.createServer(async (req, res) => {
       if (!seller) return send({ success: false, message: 'Authentication required.' }, 401)
       const readiness = merchantReadiness(seller)
       if (!readiness.isReady) return send({ success: false, message: 'Complete account approval, KYC, plan and pickup setup before booking a shipment.', readiness }, 403)
-      if (isManualCourierOrder(body)) {
-        const { order, shipment } = createManualShipmentOrder(seller, body, 'b2c')
+      const validation = validateOrderPayload(body, 'b2c')
+      if (validation.errors.length) return send({ success: false, message: validation.errors[0], errors: validation.errors }, 400)
+      const normalizedBody = withNormalizedOrderCountry(body, validation)
+      if (isManualCourierOrder(normalizedBody)) {
+        const { order, shipment } = createManualShipmentOrder(seller, normalizedBody, 'b2c')
         await stateStore.save(state)
         return send({ success: true, message: 'Manual courier shipment booked.', shipment: orderForPanels(order), manualShipment: shipment }, 201)
       }
-      if (!isShipGlobalOrder(body)) return send({ success: false, message: 'Select ShipGlobal as the courier partner for live booking.' }, 400)
+      if (!isShipGlobalOrder(normalizedBody)) return send({ success: false, message: 'Select ShipGlobal as the courier partner for live booking.' }, 400)
       if (!shipGlobal.isConfigured()) return send({ success: false, message: 'ShipGlobal production credentials are not configured yet.' }, 503)
-      if (state.orders.some((order) => String(order.order_number) === String(body.order_number))) return send({ success: false, message: 'Order number already exists.' }, 409)
+      if (state.orders.some((order) => String(order.order_number) === String(normalizedBody.order_number))) return send({ success: false, message: 'Order number already exists.' }, 409)
 
-      const providerPayload = mapPunjabShipOrderToShipGlobal(body, { service: SHIPGLOBAL_SERVICE, currencyCode: SHIPGLOBAL_CURRENCY })
+      const providerPayload = mapPunjabShipOrderToShipGlobal(normalizedBody, { service: SHIPGLOBAL_SERVICE, currencyCode: SHIPGLOBAL_CURRENCY })
       const missing = validateShipGlobalOrder(providerPayload)
       if (missing.length) return send({ success: false, message: `Missing ShipGlobal fields: ${missing.join(', ')}`, missingFields: missing }, 400)
 
@@ -2522,9 +2611,9 @@ http.createServer(async (req, res) => {
       const awb = extractShipGlobalAwb(providerResult.data, providerResult.headers)
       const now = new Date().toISOString()
       const order = {
-        ...body,
+        ...normalizedBody,
         id: `shipglobal-${randomUUID()}`,
-        order_id: body.order_number,
+        order_id: normalizedBody.order_number,
         user_id: seller.id,
         type: 'b2c',
         integration_type: 'shipglobal',
@@ -2537,10 +2626,10 @@ http.createServer(async (req, res) => {
         provider_last_status: awb ? 'Shipment created' : 'Order accepted; AWB pending from provider',
         provider_response: providerResult.data,
         shipglobal_booking_status: awb ? 'booked' : 'accepted_pending_awb',
-        buyer_name: body.consignee?.name || '',
-        buyer_phone: body.consignee?.phone || '',
-        customer_name: body.consignee?.name || '',
-        customer_phone: body.consignee?.phone || '',
+        buyer_name: normalizedBody.consignee?.name || '',
+        buyer_phone: normalizedBody.consignee?.phone || '',
+        customer_name: normalizedBody.consignee?.name || '',
+        customer_phone: normalizedBody.consignee?.phone || '',
         created_at: now,
         updated_at: now,
       }
@@ -2553,8 +2642,11 @@ http.createServer(async (req, res) => {
       if (!seller) return send({ success: false, message: 'Authentication required.' }, 401)
       const readiness = merchantReadiness(seller)
       if (!readiness.isReady) return send({ success: false, message: 'Complete account approval, KYC, plan and pickup setup before booking a shipment.', readiness }, 403)
-      if (!isManualCourierOrder(body)) return send({ success: false, message: 'Select PunjabShip Manual for B2B booking.' }, 400)
-      const { order, shipment } = createManualShipmentOrder(seller, body, 'b2b')
+      const validation = validateOrderPayload(body, 'b2b')
+      if (validation.errors.length) return send({ success: false, message: validation.errors[0], errors: validation.errors }, 400)
+      const normalizedBody = withNormalizedOrderCountry(body, validation)
+      if (!isManualCourierOrder(normalizedBody)) return send({ success: false, message: 'Select PunjabShip Manual for B2B booking.' }, 400)
+      const { order, shipment } = createManualShipmentOrder(seller, normalizedBody, 'b2b')
       await stateStore.save(state)
       return send({ success: true, message: 'Manual B2B shipment booked.', shipment: orderForPanels(order), manualShipment: shipment }, 201)
     }

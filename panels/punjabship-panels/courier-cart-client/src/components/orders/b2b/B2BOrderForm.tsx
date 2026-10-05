@@ -164,6 +164,7 @@ export default function B2BOrderForm({ onClose }: { onClose?: () => void }) {
       rovType: 'owner',
       orderAmount: 0,
       codAmount: 0,
+      country: 'IN',
     },
   })
 
@@ -263,6 +264,7 @@ export default function B2BOrderForm({ onClose }: { onClose?: () => void }) {
           pincode: data.pincode,
           company_name: data.companyName,
           gstin: data.gstin,
+          country_code: data.country || 'IN',
         },
 
         pickup: {
@@ -273,6 +275,7 @@ export default function B2BOrderForm({ onClose }: { onClose?: () => void }) {
           state: data.pickupState ?? data.state,
           pincode: data.pickupLocationPincode ?? data.pincode,
           phone: data.pickupLocationPOCPhone ?? data.buyerPhone,
+          country_code: 'IN',
           ...(data.pickupDate ? { pickup_date: data.pickupDate } : {}),
           ...(data.pickupTime ? { pickup_time: data.pickupTime } : {}),
         },

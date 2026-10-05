@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { CircularProgress, Grid } from '@mui/material'
+import { Autocomplete, CircularProgress, Grid, TextField } from '@mui/material'
 import { useQuery } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { Controller, type FieldErrors, useFormContext } from 'react-hook-form'
@@ -7,6 +7,7 @@ import { lookupPincodeLocation, normalizePincode } from '../../api/locations'
 import CustomInput from '../UI/inputs/CustomInput'
 import type { B2BFormData } from './b2b/B2BOrderForm'
 import type { B2CFormData } from './b2c/B2COrderForm'
+import { COUNTRY_OPTIONS } from '../../utils/countries'
 
 type FormType = 'b2b' | 'b2c'
 
@@ -76,7 +77,7 @@ const DeliveryDetailsForm = ({ type = 'b2c' }: { type?: FormType }) => {
     { name: 'buyerName', label: 'Name' },
     { name: 'buyerPhone', label: 'Phone' },
     { name: 'buyerEmail', label: 'Email' },
-    { name: 'country', label: 'Country Code' },
+    { name: 'country', label: 'Country' },
     { name: 'pincode', label: 'Pincode' },
     { name: 'city', label: 'City' },
     { name: 'state', label: 'State' },
@@ -138,6 +139,27 @@ const DeliveryDetailsForm = ({ type = 'b2c' }: { type?: FormType }) => {
                 }),
               }}
               render={({ field }) => (
+                fieldItem.name === 'country' ? (
+                  <Autocomplete
+                    options={COUNTRY_OPTIONS}
+                    value={COUNTRY_OPTIONS.find((country) => country.code === field.value) || COUNTRY_OPTIONS[0]}
+                    onChange={(_event, option) => field.onChange(option?.code || 'IN')}
+                    disableClearable
+                    autoHighlight
+                    getOptionLabel={(option) => `${option.name} (${option.code})`}
+                    isOptionEqualToValue={(option, value) => option.code === value.code}
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        label={fieldItem.label}
+                        required
+                        size="small"
+                        error={!!getFieldError(fieldItem.name)}
+                        helperText={getFieldError(fieldItem.name) || (isIndia ? 'Domestic India shipment' : 'International destination')}
+                      />
+                    )}
+                  />
+                ) : (
                 <CustomInput
                   label={fieldItem.label}
                   required={!isOptionalField}
@@ -145,10 +167,6 @@ const DeliveryDetailsForm = ({ type = 'b2c' }: { type?: FormType }) => {
                   onChange={(event) => {
                     if (fieldItem.name === 'pincode') {
                       field.onChange(isIndia ? normalizePincode(event.target.value) : event.target.value.toUpperCase().slice(0, 12))
-                      return
-                    }
-                    if (fieldItem.name === 'country') {
-                      field.onChange(event.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 2))
                       return
                     }
                     field.onChange(event)
@@ -163,6 +181,7 @@ const DeliveryDetailsForm = ({ type = 'b2c' }: { type?: FormType }) => {
                   topMargin={false}
                   dense
                 />
+                )
               )}
             />
           </Grid>

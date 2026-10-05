@@ -56,6 +56,7 @@ export interface CreateShipmentParams {
     phone: string
     gst_number?: string
     name?: string
+    country_code?: string
     pickup_date?: string
     pickup_time?: string
   }
@@ -204,6 +205,7 @@ export type CreateB2BShipmentParams = {
     pincode: string
     company_name: string
     gstin?: string
+    country_code?: string
   }
 
   pickup: {
@@ -214,6 +216,7 @@ export type CreateB2BShipmentParams = {
     state: string
     pincode: string
     phone: string
+    country_code?: string
     pickup_date?: string
     pickup_time?: string
   }

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { fetchAvailableCouriers } from '../../api/courier'
 import { useBookExistingB2COrderCourier } from '../../hooks/Orders/useOrders'
 import { getDefaultPickupSlot } from '../../utils/pickupSchedule'
+import { countryCodeFromName } from '../../utils/countries'
 import { toast } from '../UI/Toast'
 import CustomDrawer from '../UI/drawer/CustomDrawer'
 import CustomSelect from '../UI/inputs/CustomSelect'
@@ -195,7 +196,7 @@ const buildDefaultValues = (order: Record<string, any> | null): B2CFormData => {
     pincode: order?.pincode || '',
     city: order?.city || '',
     state: order?.state || '',
-    country: order?.country || 'India',
+    country: order?.country_code || countryCodeFromName(order?.country) || 'IN',
     products,
     weight: Number(order?.weight ?? 0),
     length: Number(order?.length ?? 10),
@@ -384,6 +385,7 @@ export default function SourceOrderCourierDrawer({
           city: data.city,
           state: data.state,
           pincode: data.pincode,
+          country_code: data.country || 'IN',
         },
         selected_max_slab_weight:
           data.selectedMaxSlabWeight !== undefined && data.selectedMaxSlabWeight !== null
@@ -400,6 +402,7 @@ export default function SourceOrderCourierDrawer({
           city: data.pickupCity ?? '',
           state: data.pickupState ?? '',
           pincode: data.pickupLocationPincode ?? '',
+          country_code: 'IN',
           pickup_date: data.pickupDate,
           pickup_time: data.pickupTime,
         },

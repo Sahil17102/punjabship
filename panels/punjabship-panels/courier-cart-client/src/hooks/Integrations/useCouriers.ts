@@ -31,11 +31,13 @@ export interface UseAvailableCouriersParams {
   pickupAddress?: string
   pickupCity?: string
   pickupState?: string
+  pickupCountryCode?: string
   deliveryName?: string
   deliveryPhone?: string
   deliveryAddress?: string
   deliveryCity?: string
   deliveryState?: string
+  deliveryCountryCode?: string
   deliveryPincode: string
   pickupAddressKey?: string
   deliveryAddressKey?: string
@@ -122,11 +124,13 @@ export const useAvailableCouriers = (params: UseAvailableCouriersParams) => {
       params?.pickupAddress,
       params?.pickupCity,
       params?.pickupState,
+      params?.pickupCountryCode,
       params?.deliveryName,
       params?.deliveryPhone,
       params?.deliveryAddress,
       params?.deliveryCity,
       params?.deliveryState,
+      params?.deliveryCountryCode,
       params?.context,
       params?.isCalculator,
       params?.isReverse,
@@ -145,11 +149,13 @@ export const useAvailableCouriers = (params: UseAvailableCouriersParams) => {
         pickupAddress: params.pickupAddress,
         pickupCity: params.pickupCity,
         pickupState: params.pickupState,
+        pickupCountryCode: params.pickupCountryCode,
         deliveryName: params.deliveryName,
         deliveryPhone: params.deliveryPhone,
         deliveryAddress: params.deliveryAddress,
         deliveryCity: params.deliveryCity,
         deliveryState: params.deliveryState,
+        deliveryCountryCode: params.deliveryCountryCode,
         payment_type: payment_type,
         order_amount: normalizedOrderAmount,
         cod,
@@ -192,11 +198,13 @@ export const useAvailableCouriersMutation = () => {
         pickupAddress: params.pickupAddress,
         pickupCity: params.pickupCity,
         pickupState: params.pickupState,
+        pickupCountryCode: params.pickupCountryCode,
         deliveryName: params.deliveryName,
         deliveryPhone: params.deliveryPhone,
         deliveryAddress: params.deliveryAddress,
         deliveryCity: params.deliveryCity,
         deliveryState: params.deliveryState,
+        deliveryCountryCode: params.deliveryCountryCode,
         payment_type: params.payment_type,
         order_amount: normalizedOrderAmount,
         cod: params.cod,
@@ -232,6 +240,8 @@ export const useB2BRateQuotesMutation = () => {
         origin: params.pickupPincode,
         destination: params.deliveryPincode,
         pickupId: params.pickupId,
+        pickupCountryCode: params.pickupCountryCode,
+        deliveryCountryCode: params.deliveryCountryCode,
         payment_type: params.payment_type,
         order_amount: normalizedOrderAmount,
         weight: params.weight,

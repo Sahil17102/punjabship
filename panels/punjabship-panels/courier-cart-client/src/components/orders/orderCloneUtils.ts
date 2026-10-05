@@ -1,5 +1,6 @@
 import { getDefaultPickupSlot } from '../../utils/pickupSchedule'
 import type { B2CFormData, Product } from './b2c/B2COrderForm'
+import { countryCodeFromName } from '../../utils/countries'
 
 const toMoney = (value: unknown) => {
   const parsed = Number(value ?? 0)
@@ -106,7 +107,7 @@ export const buildB2CCloneFormValues = (order: Record<string, any>): Partial<B2C
     pincode: order?.pincode || '',
     city: order?.city || '',
     state: order?.state || '',
-    country: order?.country || 'India',
+    country: order?.country_code || countryCodeFromName(order?.country) || 'IN',
     products,
     weight: Number(order?.weight ?? 0),
     length: Number(order?.length ?? 10),
