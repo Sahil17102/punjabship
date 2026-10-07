@@ -78,7 +78,7 @@ const DeliveryDetailsForm = ({ type = 'b2c' }: { type?: FormType }) => {
     { name: 'buyerPhone', label: 'Phone' },
     { name: 'buyerEmail', label: 'Email' },
     { name: 'country', label: 'Country' },
-    { name: 'pincode', label: 'Pincode' },
+    { name: 'pincode', label: isIndia ? 'Pincode' : 'Postal / ZIP Code' },
     { name: 'city', label: 'City' },
     { name: 'state', label: 'State' },
     { name: 'address', label: 'Address' },
@@ -143,7 +143,15 @@ const DeliveryDetailsForm = ({ type = 'b2c' }: { type?: FormType }) => {
                   <Autocomplete
                     options={COUNTRY_OPTIONS}
                     value={COUNTRY_OPTIONS.find((country) => country.code === field.value) || COUNTRY_OPTIONS[0]}
-                    onChange={(_event, option) => field.onChange(option?.code || 'IN')}
+                    onChange={(_event, option) => {
+                      const nextCountry = option?.code || 'IN'
+                      if (nextCountry !== countryCode) {
+                        setValue('pincode', '', { shouldValidate: false })
+                        setValue('city', '', { shouldValidate: false })
+                        setValue('state', '', { shouldValidate: false })
+                      }
+                      field.onChange(nextCountry)
+                    }}
                     disableClearable
                     autoHighlight
                     getOptionLabel={(option) => `${option.name} (${option.code})`}

@@ -199,11 +199,19 @@ ZM|Zambia
 ZW|Zimbabwe
 `
 
+const PRIORITY_COUNTRY_CODES = ['IN', 'CA', 'US', 'GB', 'DE', 'FR', 'IT', 'ES', 'NL']
+
 export const COUNTRY_OPTIONS: CountryOption[] = COUNTRY_DATA.trim()
   .split('\n')
   .map((row) => {
     const [code, name] = row.split('|')
     return { code, name }
+  })
+  .sort((a, b) => {
+    const aPriority = PRIORITY_COUNTRY_CODES.indexOf(a.code)
+    const bPriority = PRIORITY_COUNTRY_CODES.indexOf(b.code)
+    if (aPriority >= 0 || bPriority >= 0) return (aPriority < 0 ? 999 : aPriority) - (bPriority < 0 ? 999 : bPriority)
+    return a.name.localeCompare(b.name)
   })
 
 export const countryNameFromCode = (code?: string) =>

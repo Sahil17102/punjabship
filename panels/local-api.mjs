@@ -57,13 +57,32 @@ const passwordMatches = (password, encoded) => {
 }
 
 const DEFAULT_MANUAL_COURIER_ID = 91001
+const EUROPE_COUNTRIES = [
+  'Austria', 'Belgium', 'Bulgaria', 'Croatia', 'Cyprus', 'Czechia', 'Denmark',
+  'Estonia', 'Finland', 'France', 'Germany', 'Greece', 'Hungary', 'Iceland',
+  'Ireland', 'Italy', 'Latvia', 'Liechtenstein', 'Lithuania', 'Luxembourg',
+  'Malta', 'Netherlands', 'Norway', 'Poland', 'Portugal', 'Romania', 'Slovakia',
+  'Slovenia', 'Spain', 'Sweden', 'Switzerland', 'United Kingdom',
+]
+const INTERNATIONAL_ZONE_DEFINITIONS = [
+  { key: 'canada', code: 'CA', name: 'Canada', countries: ['Canada'], b2cRate: 1450, b2cRto: 1200, b2cExtra: 480, b2cExtraRto: 420, b2bPerKg: 210 },
+  { key: 'usa', code: 'US', name: 'United States', countries: ['United States'], b2cRate: 1350, b2cRto: 1150, b2cExtra: 450, b2cExtraRto: 400, b2bPerKg: 195 },
+  { key: 'europe', code: 'EU', name: 'Europe', countries: EUROPE_COUNTRIES, b2cRate: 1550, b2cRto: 1300, b2cExtra: 520, b2cExtraRto: 460, b2bPerKg: 225 },
+]
 const DEFAULT_B2C_ZONES = [
   { id: 'b2c-local', code: 'A', name: 'Local', description: 'Same city / nearby pincode cluster', business_type: 'b2c', is_active: true },
   { id: 'b2c-state', code: 'B', name: 'Within State', description: 'Pickup and delivery in the same state', business_type: 'b2c', is_active: true },
   { id: 'b2c-metro', code: 'C', name: 'Metro', description: 'Major metro destination', business_type: 'b2c', is_active: true },
   { id: 'b2c-roi', code: 'D', name: 'Rest of India', description: 'All standard India destinations', business_type: 'b2c', is_active: true },
   { id: 'b2c-special', code: 'E', name: 'Special', description: 'North East, Jammu & Kashmir and island destinations', business_type: 'b2c', is_active: true },
-].map((zone) => ({ ...zone, country: 'India', countries: ['India'] }))
+].map((zone) => ({ ...zone, country: 'India', countries: ['India'] })).concat(
+  INTERNATIONAL_ZONE_DEFINITIONS.map((zone) => ({
+    id: `b2c-${zone.key}`, code: zone.code, name: zone.name,
+    description: `All valid postal codes in ${zone.name}`,
+    business_type: 'b2c', is_active: true,
+    country: zone.countries[0], countries: zone.countries,
+  })),
+)
 const DEFAULT_B2B_ZONES = [
   { id: 'b2b-north', code: 'N', name: 'North', description: 'North India', states: ['Punjab', 'Haryana', 'Himachal Pradesh', 'Delhi', 'Uttar Pradesh', 'Uttarakhand', 'Chandigarh', 'Rajasthan'], business_type: 'b2b', is_active: true },
   { id: 'b2b-west', code: 'W', name: 'West', description: 'West India', states: ['Gujarat', 'Maharashtra', 'Goa', 'Dadra & Nagar Haveli', 'Daman & Diu'], business_type: 'b2b', is_active: true },
@@ -71,7 +90,14 @@ const DEFAULT_B2B_ZONES = [
   { id: 'b2b-east', code: 'E', name: 'East', description: 'East India', states: ['West Bengal', 'Odisha', 'Bihar', 'Jharkhand'], business_type: 'b2b', is_active: true },
   { id: 'b2b-central', code: 'C', name: 'Central', description: 'Central India', states: ['Madhya Pradesh', 'Chhattisgarh'], business_type: 'b2b', is_active: true },
   { id: 'b2b-northeast', code: 'NE', name: 'North East', description: 'North East and special destinations', states: ['Assam', 'Arunachal Pradesh', 'Manipur', 'Meghalaya', 'Mizoram', 'Nagaland', 'Sikkim', 'Tripura', 'Jammu & Kashmir', 'Ladakh', 'Andaman & Nicobar Islands'], business_type: 'b2b', is_active: true },
-].map((zone) => ({ ...zone, country: 'India', countries: ['India'] }))
+].map((zone) => ({ ...zone, country: 'India', countries: ['India'] })).concat(
+  INTERNATIONAL_ZONE_DEFINITIONS.map((zone) => ({
+    id: `b2b-${zone.key}`, code: zone.code, name: zone.name,
+    description: `All valid postal codes in ${zone.name}`,
+    states: [], business_type: 'b2b', is_active: true,
+    country: zone.countries[0], countries: zone.countries,
+  })),
+)
 
 const normalizeZoneCountries = (zone = {}) => {
   const countries = (Array.isArray(zone.countries) ? zone.countries : [zone.country])
@@ -106,11 +132,13 @@ const defaultB2cRate = () => ({
     Local: { forward: 45, rto: 40 }, 'Within State': { forward: 55, rto: 50 },
     Metro: { forward: 65, rto: 60 }, 'Rest of India': { forward: 75, rto: 70 },
     Special: { forward: 95, rto: 90 },
+    ...Object.fromEntries(INTERNATIONAL_ZONE_DEFINITIONS.map((zone) => [zone.name, { forward: zone.b2cRate, rto: zone.b2cRto }])),
   },
   zone_slabs: {
     Local: makeSlab(45, 40, 22, 20), 'Within State': makeSlab(55, 50, 26, 24),
     Metro: makeSlab(65, 60, 30, 28), 'Rest of India': makeSlab(75, 70, 35, 32),
     Special: makeSlab(95, 90, 45, 42),
+    ...Object.fromEntries(INTERNATIONAL_ZONE_DEFINITIONS.map((zone) => [zone.name, makeSlab(zone.b2cRate, zone.b2cRto, zone.b2cExtra, zone.b2cExtraRto)])),
   },
 })
 const defaultB2bRate = () => ({
@@ -125,10 +153,14 @@ const defaultB2bRate = () => ({
     East: { forward_per_kg: 17, rto_per_kg: 15, min_weight: 10 },
     Central: { forward_per_kg: 14, rto_per_kg: 12, min_weight: 10 },
     'North East': { forward_per_kg: 24, rto_per_kg: 22, min_weight: 10 },
+    ...Object.fromEntries(INTERNATIONAL_ZONE_DEFINITIONS.map((zone) => [zone.name, { forward_per_kg: zone.b2bPerKg, rto_per_kg: zone.b2bPerKg, min_weight: 10 }])),
   },
 })
 const defaultB2bZoneRates = () => {
-  const perKg = { North: 12, West: 15, South: 18, East: 17, Central: 14, 'North East': 24 }
+  const perKg = {
+    North: 12, West: 15, South: 18, East: 17, Central: 14, 'North East': 24,
+    ...Object.fromEntries(INTERNATIONAL_ZONE_DEFINITIONS.map((zone) => [zone.name, zone.b2bPerKg])),
+  }
   return DEFAULT_B2B_ZONES.flatMap((origin) => DEFAULT_B2B_ZONES.map((destination) => ({
     id: `b2b-rate-${origin.code.toLowerCase()}-${destination.code.toLowerCase()}`,
     originZoneId: origin.id, origin_zone_id: origin.id,
@@ -398,8 +430,13 @@ state.manualShipmentLegs ??= []
 if (!state.manualCouriers.some((item) => item.id === 'manual-punjabship')) state.manualCouriers.push(defaultManualCourier())
 for (const zone of [...DEFAULT_B2C_ZONES, ...DEFAULT_B2B_ZONES]) {
   const existingZone = state.zones.find((item) => item.id === zone.id)
-  if (!existingZone) state.zones.push(zone)
-  else if (zone.states?.length && !existingZone.states?.length) existingZone.states = zone.states
+  if (!existingZone) {
+    state.zones.push(zone)
+    stateNeedsSave = true
+  } else if (zone.states?.length && !existingZone.states?.length) {
+    existingZone.states = zone.states
+    stateNeedsSave = true
+  }
 }
 for (let index = 0; index < state.zones.length; index += 1) {
   const zone = state.zones[index]
@@ -409,10 +446,35 @@ for (let index = 0; index < state.zones.length; index += 1) {
     stateNeedsSave = true
   }
 }
-if (!state.shippingRates.some((item) => item.id === 'rate-punjabship-b2c')) state.shippingRates.push(defaultB2cRate())
-if (!state.shippingRates.some((item) => item.id === 'rate-punjabship-b2b')) state.shippingRates.push(defaultB2bRate())
+for (const defaultRate of [defaultB2cRate(), defaultB2bRate()]) {
+  const existingRate = state.shippingRates.find((item) => item.id === defaultRate.id)
+  if (!existingRate) {
+    state.shippingRates.push(defaultRate)
+    stateNeedsSave = true
+    continue
+  }
+  existingRate.rates ??= {}
+  for (const [zoneName, zoneRate] of Object.entries(defaultRate.rates || {})) {
+    if (!existingRate.rates[zoneName]) {
+      existingRate.rates[zoneName] = zoneRate
+      stateNeedsSave = true
+    }
+  }
+  if (defaultRate.zone_slabs) {
+    existingRate.zone_slabs ??= {}
+    for (const [zoneName, slabs] of Object.entries(defaultRate.zone_slabs)) {
+      if (!existingRate.zone_slabs[zoneName]) {
+        existingRate.zone_slabs[zoneName] = slabs
+        stateNeedsSave = true
+      }
+    }
+  }
+}
 for (const rate of defaultB2bZoneRates()) {
-  if (!state.b2bZoneRates.some((item) => item.id === rate.id)) state.b2bZoneRates.push(rate)
+  if (!state.b2bZoneRates.some((item) => item.id === rate.id)) {
+    state.b2bZoneRates.push(rate)
+    stateNeedsSave = true
+  }
 }
 for (const seller of state.users) {
   if (seller.approved && (seller.businessType || []).map((item) => String(item).toLowerCase()).includes('b2b')) {
@@ -949,6 +1011,14 @@ const countryNameFromCode = (value) => {
   const code = normalizeCountryCode(value)
   try { return countryDisplayNames.of(code) || code } catch { return code }
 }
+const postalCodeIsValid = (countryCode, value) => {
+  const code = normalizeCountryCode(countryCode)
+  const postalCode = String(value || '').trim().toUpperCase()
+  if (code === 'IN') return /^[1-9]\d{5}$/.test(postalCode)
+  if (code === 'US') return /^\d{5}(?:-\d{4})?$/.test(postalCode)
+  if (code === 'CA') return /^[A-Z]\d[A-Z][ -]?\d[A-Z]\d$/.test(postalCode)
+  return /^[A-Z0-9][A-Z0-9 -]{1,10}[A-Z0-9]$/.test(postalCode)
+}
 const zoneForCountry = (businessType, countryCode) => {
   const code = normalizeCountryCode(countryCode)
   const name = countryNameFromCode(code).toLowerCase()
@@ -998,7 +1068,7 @@ const courierSupportsRoute = (courier, origin, destination, shipmentType, paymen
   const originCountry = normalizeCountryCode(originCountryCode)
   const destinationCountry = normalizeCountryCode(destinationCountryCode)
   if (originCountry !== 'IN' || destinationCountry !== 'IN') {
-    return originCountry === 'IN' && Boolean(zoneForCountry(shipmentType, destinationCountry))
+    return originCountry === 'IN' && postalCodeIsValid(destinationCountry, destination) && Boolean(zoneForCountry(shipmentType, destinationCountry))
   }
   if (courier.pincodeScope === 'all_india') return Boolean(officeForPincode(origin) && officeForPincode(destination))
   const covered = new Set(normalizePincodes(courier.pincodes))
@@ -1089,10 +1159,8 @@ const validateOrderPayload = (body, type) => {
   if (!String(consignee.address || consignee.address_line_1 || '').trim()) errors.push('consignee.address is required')
   if (!String(consignee.city || '').trim()) errors.push('consignee.city is required')
   if (!String(consignee.state || '').trim()) errors.push('consignee.state is required')
-  if (countryCode === 'IN') {
-    if (!/^[1-9]\d{5}$/.test(postalCode)) errors.push('India delivery pincode must be 6 digits')
-  } else if (!/^[A-Za-z0-9][A-Za-z0-9 -]{2,11}$/.test(postalCode)) {
-    errors.push('International delivery postal code is invalid')
+  if (!postalCodeIsValid(countryCode, postalCode)) {
+    errors.push(countryCode === 'IN' ? 'India delivery pincode must be 6 digits' : `Delivery postal code is invalid for ${countryNameFromCode(countryCode)}`)
   }
   if (!String(body?.order_number || '').trim()) errors.push('order_number is required')
   if (type === 'b2c') {
@@ -2817,8 +2885,21 @@ http.createServer(async (req, res) => {
       const pincode = String(requestUrl.searchParams.get('pincode') || '').trim().toLowerCase()
       const city = String(requestUrl.searchParams.get('city') || '').trim().toLowerCase()
       const stateName = String(requestUrl.searchParams.get('state') || '').trim().toLowerCase()
-      if (/^[1-9]\d{5}$/.test(pincode) && !city && !stateName) {
-        const custom = state.customServiceabilityLocations.find((item) => item.pincode === pincode)
+      const country = String(requestUrl.searchParams.get('country') || 'India').trim()
+      const countryLower = country.toLowerCase()
+      const inferredCountryCode = countryLower === 'india' ? 'IN' : countryLower === 'canada' ? 'CA' : ['united states', 'usa', 'america'].includes(countryLower) ? 'US' : 'INT'
+      if (postalCodeIsValid(inferredCountryCode, pincode) && !city && !stateName) {
+        const custom = state.customServiceabilityLocations.find((item) => item.pincode.toLowerCase() === pincode && String(item.country || 'India').toLowerCase() === countryLower)
+        if (inferredCountryCode !== 'IN') {
+          const supported = ['b2c', 'b2b'].some((businessType) => zoneForCountry(businessType, inferredCountryCode === 'INT' ? country : inferredCountryCode))
+          const location = custom || (supported ? {
+            id: `international-${encodeURIComponent(countryLower)}-${encodeURIComponent(pincode)}`,
+            pincode: pincode.toUpperCase(), city: '', state: '', country,
+            tags: ['country-wide'], source: 'PunjabShip zone coverage',
+          } : null)
+          const locations = location ? [location] : []
+          return send({ success: true, data: locations, total: locations.length, totalCount: locations.length, page: 1, limit, totalPages: 1 })
+        }
         const office = officeForPincode(pincode)
         const location = custom || (office ? {
           id: `india-pincode-${pincode}`,
@@ -2838,13 +2919,17 @@ http.createServer(async (req, res) => {
       if (pincode) locations = locations.filter((item) => item.pincode.toLowerCase().includes(pincode))
       if (city) locations = locations.filter((item) => `${item.city} ${item.district || ''}`.toLowerCase().includes(city))
       if (stateName) locations = locations.filter((item) => item.state.toLowerCase().includes(stateName))
+      if (String(requestUrl.searchParams.get('country') || '').trim()) locations = locations.filter((item) => String(item.country || 'India').toLowerCase().includes(countryLower))
       const start = (page - 1) * limit
       return send({ success: true, data: locations.slice(start, start + limit), total: locations.length, totalCount: locations.length, page, limit, totalPages: Math.max(1, Math.ceil(locations.length / limit)) })
     }
     if (path === '/api/serviceability/locations' && req.method === 'POST') {
-      const pincode = String(body.pincode || '').trim()
-      if (!/^[1-9]\d{5}$/.test(pincode) || !body.city || !body.state) return send({ success: false, error: 'Valid pincode, city and state are required.' }, 400)
-      const location = { id: `custom-location-${randomUUID()}`, pincode, city: String(body.city).trim(), state: String(body.state).trim(), country: 'India', tags: Array.isArray(body.tags) ? body.tags : [], source: 'PunjabShip' }
+      const pincode = String(body.pincode || '').trim().toUpperCase()
+      const country = String(body.country || 'India').trim()
+      const countryLower = country.toLowerCase()
+      const countryCode = countryLower === 'india' ? 'IN' : countryLower === 'canada' ? 'CA' : countryLower === 'united states' ? 'US' : 'INT'
+      if (!postalCodeIsValid(countryCode, pincode) || !body.city || !body.state) return send({ success: false, error: 'Valid postal code, city, state/province and country are required.' }, 400)
+      const location = { id: `custom-location-${randomUUID()}`, pincode, city: String(body.city).trim(), state: String(body.state).trim(), country, tags: Array.isArray(body.tags) ? body.tags : [], source: 'PunjabShip' }
       state.customServiceabilityLocations.push(location)
       save()
       return send(location, 201)
@@ -2858,7 +2943,7 @@ http.createServer(async (req, res) => {
       const id = serviceabilityMatch[1]
       const location = serviceabilityLocations().find((item) => item.id === id)
       if (!location) return send({ success: false, error: 'Location not found.' }, 404)
-      const updated = { ...location, ...body, id, country: 'India' }
+      const updated = { ...location, ...body, id, pincode: String(body.pincode ?? location.pincode).trim().toUpperCase(), country: String(body.country ?? location.country ?? 'India').trim() }
       const customIndex = state.customServiceabilityLocations.findIndex((item) => item.id === id)
       if (customIndex >= 0) state.customServiceabilityLocations[customIndex] = updated
       else state.serviceabilityOverrides[id] = updated

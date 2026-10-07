@@ -34,7 +34,16 @@ const COUNTRY_NAMES = [
   'Zimbabwe',
 ]
 
-export const COUNTRY_OPTIONS = COUNTRY_NAMES.map((name) => ({ label: name, value: name }))
+const PRIORITY_COUNTRIES = ['India', 'Canada', 'United States', 'United Kingdom', 'Germany', 'France', 'Italy', 'Spain', 'Netherlands']
+
+export const COUNTRY_OPTIONS = [...COUNTRY_NAMES]
+  .sort((a, b) => {
+    const aPriority = PRIORITY_COUNTRIES.indexOf(a)
+    const bPriority = PRIORITY_COUNTRIES.indexOf(b)
+    if (aPriority >= 0 || bPriority >= 0) return (aPriority < 0 ? 999 : aPriority) - (bPriority < 0 ? 999 : bPriority)
+    return a.localeCompare(b)
+  })
+  .map((name) => ({ label: name, value: name }))
 
 export const getZoneCountries = (zone = {}) => {
   if (Array.isArray(zone.countries) && zone.countries.length) return zone.countries

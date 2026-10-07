@@ -23,6 +23,7 @@ import {
 import { useState } from 'react'
 import { locationService, normalizePincodeInput } from 'services/location.service'
 import { GenericTable } from 'views/Dashboard/Tables/components/GenericTable'
+import { COUNTRY_OPTIONS } from 'constants/countries'
 
 // MultiSelect options you wanted
 const TAG_OPTIONS = [
@@ -38,7 +39,7 @@ const ServiceabilityPage = () => {
   const [page, setPage] = useState(1)
   const [perPage, setPerPage] = useState(20)
   const [selectedRows, setSelectedRows] = useState([])
-  const [filters, setFilters] = useState({ pincode: '', city: '', state: '' }) // filter state
+  const [filters, setFilters] = useState({ pincode: '', city: '', state: '', country: '' }) // filter state
 
   const { data, isLoading } = useLocations({ page, limit: perPage, ...filters })
   const { mutate: addLocation } = useCreateLocation()
@@ -74,15 +75,18 @@ const ServiceabilityPage = () => {
     const { name, value } = e.target
 
     if (name === 'pincode') {
-      const pincode = normalizePincodeInput(value)
+      const isIndia = formData.country === 'India'
+      const pincode = isIndia
+        ? normalizePincodeInput(value)
+        : String(value || '').toUpperCase().replace(/[^A-Z0-9 -]/g, '').slice(0, 12)
       setFormData((prev) => ({
         ...prev,
         pincode,
-        ...(pincode.length === 6 ? {} : { city: '', state: '' }),
+        ...(isIndia && pincode.length !== 6 ? { city: '', state: '' } : {}),
       }))
       setPincodeError('')
 
-      if (pincode.length === 6) {
+      if (isIndia && pincode.length === 6) {
         try {
           const loc = await locationService.lookupPincode(pincode)
 
@@ -101,9 +105,15 @@ const ServiceabilityPage = () => {
           setFormData((prev) => ({ ...prev, city: '', state: '' }))
           setPincodeError('Failed to fetch location')
         }
-      } else {
+      } else if (isIndia) {
         setFormData((prev) => ({ ...prev, city: '', state: '' }))
       }
+      return
+    }
+
+    if (name === 'country') {
+      setFormData((prev) => ({ ...prev, country: value, pincode: '', city: '', state: '' }))
+      setPincodeError('')
       return
     }
 
@@ -111,7 +121,7 @@ const ServiceabilityPage = () => {
   }
 
   const handleSave = () => {
-    const dataToSave = { ...formData, country: 'India' }
+    const dataToSave = { ...formData }
 
     if (!dataToSave.pincode || !dataToSave.city || !dataToSave.state) {
       alert('Please fill all fields')
@@ -160,6 +170,7 @@ const ServiceabilityPage = () => {
     { key: 'pincode', label: 'Pincode', type: 'text' },
     { key: 'city', label: 'City', type: 'text' },
     { key: 'state', label: 'State', type: 'text' },
+    { key: 'country', label: 'Country', type: 'text' },
   ]
 
   return (
@@ -244,8 +255,13 @@ const ServiceabilityPage = () => {
         }
       >
         <Stack spacing={3}>
+          <Select name="country" value={formData.country} onChange={handleChange}>
+            {COUNTRY_OPTIONS.map((country) => (
+              <option key={country.value} value={country.value}>{country.label}</option>
+            ))}
+          </Select>
           <Input
-            placeholder="Pincode"
+            placeholder={formData.country === 'India' ? '6-digit pincode' : 'Postal / ZIP code'}
             name="pincode"
             value={formData.pincode}
             onChange={handleChange}
@@ -254,10 +270,6 @@ const ServiceabilityPage = () => {
           {pincodeError && <Text color="red.500">{pincodeError}</Text>}
           <Input placeholder="City" name="city" value={formData.city} onChange={handleChange} />
           <Input placeholder="State" name="state" value={formData.state} onChange={handleChange} />
-          <Select name="country" value="India" isDisabled>
-            <option value="India">India</option>
-          </Select>
-
           {/* MultiSelect for tags */}
           <Box>
             <MultiSelect
