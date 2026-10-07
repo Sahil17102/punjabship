@@ -511,12 +511,34 @@ const save = () => {
   })
 }
 if (stateNeedsSave) await stateStore.save(state)
+const countryCoverageLocations = () => {
+  const countries = [...new Set(state.zones
+    .filter((zone) => zone.is_active !== false)
+    .flatMap((zone) => normalizeZoneCountries(zone))
+    .map((country) => String(country || '').trim())
+    .filter((country) => country && country.toLowerCase() !== 'india'))]
+  return countries.map((country) => ({
+    id: `country-coverage-${country.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+    pincode: 'All valid postal codes',
+    city: 'All cities',
+    state: 'All states / provinces',
+    country,
+    coverage: 'country-wide',
+    tags: ['country-wide'],
+    source: 'PunjabShip zone coverage',
+    isSystemCoverage: true,
+  }))
+}
 const serviceabilityLocations = () => {
   const deleted = new Set(state.deletedServiceabilityLocationIds)
   const seeded = getSeededServiceabilityLocations()
     .filter((location) => !deleted.has(location.id))
     .map((location) => ({ ...location, ...(state.serviceabilityOverrides[location.id] || {}) }))
-  return [...seeded, ...state.customServiceabilityLocations.filter((location) => !deleted.has(location.id))]
+  return [
+    ...countryCoverageLocations(),
+    ...seeded,
+    ...state.customServiceabilityLocations.filter((location) => !deleted.has(location.id)),
+  ]
 }
 const brandAddress = 'SODHI ONLINE SERVICES, Near Verka Plant, Barnala Raikot Road, Mahal Kalan, Barnala, Punjab 148104'
 state.invoicePreferences ??= { brandName: 'PunjabShip', sellerAddress: brandAddress, supportEmail: 'info@punjabshiplogistics.com', supportPhone: '+91 84878 81121', prefix: 'PS-INV', template: 'classic', includeLogo: true, includeSignature: false }
@@ -2916,9 +2938,9 @@ http.createServer(async (req, res) => {
         return send({ success: true, data: locations, total: locations.length, totalCount: locations.length, page: 1, limit, totalPages: 1 })
       }
       let locations = serviceabilityLocations()
-      if (pincode) locations = locations.filter((item) => item.pincode.toLowerCase().includes(pincode))
-      if (city) locations = locations.filter((item) => `${item.city} ${item.district || ''}`.toLowerCase().includes(city))
-      if (stateName) locations = locations.filter((item) => item.state.toLowerCase().includes(stateName))
+      if (pincode) locations = locations.filter((item) => item.coverage === 'country-wide' || item.pincode.toLowerCase().includes(pincode))
+      if (city) locations = locations.filter((item) => item.coverage === 'country-wide' || `${item.city} ${item.district || ''}`.toLowerCase().includes(city))
+      if (stateName) locations = locations.filter((item) => item.coverage === 'country-wide' || item.state.toLowerCase().includes(stateName))
       if (String(requestUrl.searchParams.get('country') || '').trim()) locations = locations.filter((item) => String(item.country || 'India').toLowerCase().includes(countryLower))
       const start = (page - 1) * limit
       return send({ success: true, data: locations.slice(start, start + limit), total: locations.length, totalCount: locations.length, page, limit, totalPages: Math.max(1, Math.ceil(locations.length / limit)) })
@@ -2943,6 +2965,7 @@ http.createServer(async (req, res) => {
       const id = serviceabilityMatch[1]
       const location = serviceabilityLocations().find((item) => item.id === id)
       if (!location) return send({ success: false, error: 'Location not found.' }, 404)
+      if (location.isSystemCoverage) return send({ success: false, error: 'Country-wide zone coverage is managed from Zones.' }, 409)
       const updated = { ...location, ...body, id, pincode: String(body.pincode ?? location.pincode).trim().toUpperCase(), country: String(body.country ?? location.country ?? 'India').trim() }
       const customIndex = state.customServiceabilityLocations.findIndex((item) => item.id === id)
       if (customIndex >= 0) state.customServiceabilityLocations[customIndex] = updated
@@ -2952,7 +2975,9 @@ http.createServer(async (req, res) => {
     }
     if (serviceabilityMatch && req.method === 'DELETE') {
       const id = serviceabilityMatch[1]
-      if (!serviceabilityLocations().some((item) => item.id === id)) return send({ success: false, error: 'Location not found.' }, 404)
+      const location = serviceabilityLocations().find((item) => item.id === id)
+      if (!location) return send({ success: false, error: 'Location not found.' }, 404)
+      if (location.isSystemCoverage) return send({ success: false, error: 'Country-wide zone coverage is managed from Zones.' }, 409)
       state.customServiceabilityLocations = state.customServiceabilityLocations.filter((item) => item.id !== id)
       delete state.serviceabilityOverrides[id]
       if (!state.deletedServiceabilityLocationIds.includes(id)) state.deletedServiceabilityLocationIds.push(id)

@@ -169,6 +169,18 @@ test('B2C and B2B zones persist domestic and international countries', { timeout
   assert.equal(canadaServiceability.payload.data[0].country, 'Canada')
   assert.equal(canadaServiceability.payload.data[0].pincode, 'K1A 0B1')
 
+  const franceCoverage = await request(`${baseUrl}/api/serviceability/locations?country=France&pincode=75`)
+  assert.equal(franceCoverage.response.status, 200)
+  assert.equal(franceCoverage.payload.total, 1)
+  assert.equal(franceCoverage.payload.data[0].country, 'France')
+  assert.equal(franceCoverage.payload.data[0].pincode, 'All valid postal codes')
+  assert.equal(franceCoverage.payload.data[0].isSystemCoverage, true)
+
+  const allCoverage = await request(`${baseUrl}/api/serviceability/locations?country=Canada`)
+  assert.equal(allCoverage.response.status, 200)
+  assert.equal(allCoverage.payload.data[0].country, 'Canada')
+  assert.equal(allCoverage.payload.data[0].coverage, 'country-wide')
+
   const customUsLocation = await request(`${baseUrl}/api/serviceability/locations`, {
     token,
     method: 'POST',

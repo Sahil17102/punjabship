@@ -23,7 +23,7 @@ import {
 import { useState } from 'react'
 import { locationService, normalizePincodeInput } from 'services/location.service'
 import { GenericTable } from 'views/Dashboard/Tables/components/GenericTable'
-import { COUNTRY_OPTIONS } from 'constants/countries'
+import { COUNTRY_OPTIONS, SERVICEABILITY_COUNTRY_OPTIONS } from 'constants/countries'
 
 // MultiSelect options you wanted
 const TAG_OPTIONS = [
@@ -141,7 +141,10 @@ const ServiceabilityPage = () => {
   }
 
   const handleDeleteSelected = () => {
-    selectedRows.forEach((id) => deleteLocation(id))
+    const systemCoverageIds = new Set(
+      (data?.data || []).filter((row) => row.isSystemCoverage).map((row) => row.id),
+    )
+    selectedRows.filter((id) => !systemCoverageIds.has(id)).forEach((id) => deleteLocation(id))
     setSelectedRows([])
   }
 
@@ -167,10 +170,10 @@ const ServiceabilityPage = () => {
 
   // Filter definitions for TableFilters component
   const filterDefinitions = [
-    { key: 'pincode', label: 'Pincode', type: 'text' },
-    { key: 'city', label: 'City', type: 'text' },
-    { key: 'state', label: 'State', type: 'text' },
-    { key: 'country', label: 'Country', type: 'text' },
+    { key: 'pincode', label: 'Postal / ZIP code', type: 'search', placeholder: 'Search postal code' },
+    { key: 'city', label: 'City', type: 'search', placeholder: 'Search city' },
+    { key: 'state', label: 'State / Province', type: 'search', placeholder: 'Search state or province' },
+    { key: 'country', label: 'Country', type: 'select', options: SERVICEABILITY_COUNTRY_OPTIONS },
   ]
 
   return (
@@ -220,7 +223,9 @@ const ServiceabilityPage = () => {
             )
           },
         }}
-        renderActions={(row) => (
+        renderActions={(row) => row.isSystemCoverage ? (
+          <Badge colorScheme="green">Managed by zone</Badge>
+        ) : (
           <IconButton
             aria-label="Edit"
             icon={<EditIcon />}

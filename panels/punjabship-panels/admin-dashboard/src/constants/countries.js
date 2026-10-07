@@ -45,6 +45,19 @@ export const COUNTRY_OPTIONS = [...COUNTRY_NAMES]
   })
   .map((name) => ({ label: name, value: name }))
 
+const SERVICEABILITY_COUNTRIES = new Set([
+  'India', 'Canada', 'United States',
+  'Austria', 'Belgium', 'Bulgaria', 'Croatia', 'Cyprus', 'Czechia', 'Denmark',
+  'Estonia', 'Finland', 'France', 'Germany', 'Greece', 'Hungary', 'Iceland',
+  'Ireland', 'Italy', 'Latvia', 'Liechtenstein', 'Lithuania', 'Luxembourg',
+  'Malta', 'Netherlands', 'Norway', 'Poland', 'Portugal', 'Romania', 'Slovakia',
+  'Slovenia', 'Spain', 'Sweden', 'Switzerland', 'United Kingdom',
+])
+
+export const SERVICEABILITY_COUNTRY_OPTIONS = COUNTRY_OPTIONS.filter((country) =>
+  SERVICEABILITY_COUNTRIES.has(country.value),
+)
+
 export const getZoneCountries = (zone = {}) => {
   if (Array.isArray(zone.countries) && zone.countries.length) return zone.countries
   return [zone.country || 'India']
