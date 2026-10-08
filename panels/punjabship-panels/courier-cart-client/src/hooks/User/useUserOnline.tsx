@@ -1,6 +1,10 @@
 import { io } from 'socket.io-client'
 
-const SOCKET_URL = import.meta.env.VITE_APP_SOCKET_URL || 'http://127.0.0.1:5004'
+const SOCKET_URL =
+  typeof window !== 'undefined' &&
+  (window.location.hostname === 'punjabship.com' || window.location.hostname === 'www.punjabship.com')
+    ? 'https://api.punjabship.com'
+    : import.meta.env.VITE_APP_SOCKET_URL || 'http://127.0.0.1:5004'
 const socket = io(SOCKET_URL, { transports: ['websocket', 'polling'], autoConnect: false })
 
 let pingInterval: number | null = null
