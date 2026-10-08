@@ -118,9 +118,36 @@ const normalizeZoneCountries = (zone = {}) => {
   return [...new Set(countries.length ? countries : ['India'])]
 }
 
+const normalizeZonePostalCodes = (zone = {}) => {
+  const defaultCountry = normalizeZoneCountries(zone)[0] || 'India'
+  const values = Array.isArray(zone.postal_codes)
+    ? zone.postal_codes
+    : Array.isArray(zone.pincodes)
+      ? zone.pincodes
+      : []
+  const unique = new Map()
+  for (const value of values) {
+    const item = typeof value === 'object' && value !== null
+      ? value
+      : { country: defaultCountry, pincode: value }
+    const pincode = String(item.pincode || item.postalCode || '').trim().toUpperCase()
+    const country = String(item.country || defaultCountry).trim()
+    if (!pincode || !country) continue
+    const key = `${country.toLowerCase()}::${pincode.replace(/\s+/g, '')}`
+    unique.set(key, {
+      country,
+      pincode,
+      city: String(item.city || '').trim(),
+      state: String(item.state || '').trim(),
+    })
+  }
+  return [...unique.values()]
+}
+
 const withNormalizedZoneCountries = (zone = {}) => {
   const countries = normalizeZoneCountries(zone)
-  return { ...zone, country: countries[0], countries }
+  const postal_codes = normalizeZonePostalCodes({ ...zone, countries })
+  return { ...zone, country: countries[0], countries, postal_codes }
 }
 
 const defaultManualCourier = () => ({
@@ -1050,26 +1077,59 @@ const globalPostalLocation = (row) => ({
   source: 'GeoNames',
   isSystemPostalCode: true,
 })
-const zoneForCountry = (businessType, countryCode) => {
+const normalizedPostalValue = (value) => String(value || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '')
+const zonePostalCodes = (zone) => normalizeZonePostalCodes(zone)
+const postalSelectionMatches = (selection, countryCode, postalCode) => {
+  const selectedCountryCode = serviceabilityCountryCode(selection.country)
+  const code = normalizeCountryCode(countryCode)
+  if (selectedCountryCode && selectedCountryCode !== code) return false
+  const selected = normalizedPostalValue(selection.pincode)
+  const destination = normalizedPostalValue(postalCode)
+  if (!selected || !destination) return false
+  return destination === selected || destination.startsWith(selected)
+}
+const zoneAllowsPostalCode = (zone, countryCode, postalCode) => {
+  const selections = zonePostalCodes(zone)
+  return selections.length === 0 || selections.some((selection) => postalSelectionMatches(selection, countryCode, postalCode))
+}
+const explicitZoneForPostalCode = (businessType, countryCode, postalCode) => state.zones.find((zone) => (
+  normalizeBusinessType(zone.business_type) === businessType &&
+  zonePostalCodes(zone).some((selection) => postalSelectionMatches(selection, countryCode, postalCode))
+))
+const zoneForCountry = (businessType, countryCode, postalCode = '') => {
   const code = normalizeCountryCode(countryCode)
   const name = countryNameFromCode(code).toLowerCase()
-  return state.zones.find((zone) => {
+  const candidates = state.zones.filter((zone) => {
     if (normalizeBusinessType(zone.business_type) !== businessType) return false
     const countries = normalizeZoneCountries(zone).map((country) => String(country).trim().toLowerCase())
     return countries.includes(code.toLowerCase()) || countries.includes(name)
   })
+  if (postalCode) {
+    const explicit = candidates.find((zone) => zonePostalCodes(zone).length > 0 && zoneAllowsPostalCode(zone, code, postalCode))
+    if (explicit) return explicit
+  }
+  return candidates.find((zone) => zonePostalCodes(zone).length === 0)
 }
 const normalizedState = (pincode) => String(officeForPincode(pincode)?.state || '').trim().toLowerCase()
 const SPECIAL_STATES = new Set(['andaman & nicobar islands', 'arunachal pradesh', 'assam', 'jammu & kashmir', 'ladakh', 'manipur', 'meghalaya', 'mizoram', 'nagaland', 'sikkim', 'tripura'])
 const METRO_PREFIXES = ['110', '122', '201', '400', '560', '600', '700', '500', '411', '380']
 const b2cZoneFor = (origin, destination) => {
+  const explicit = explicitZoneForPostalCode('b2c', 'IN', destination)
+  if (explicit) return explicit
   const originState = normalizedState(origin)
   const destinationState = normalizedState(destination)
-  if (String(origin).slice(0, 3) === String(destination).slice(0, 3)) return state.zones.find((item) => item.id === 'b2c-local')
-  if (originState && originState === destinationState) return state.zones.find((item) => item.id === 'b2c-state')
-  if (SPECIAL_STATES.has(destinationState)) return state.zones.find((item) => item.id === 'b2c-special')
-  if (METRO_PREFIXES.includes(String(destination).slice(0, 3))) return state.zones.find((item) => item.id === 'b2c-metro')
-  return state.zones.find((item) => item.id === 'b2c-roi')
+  const preferredId = String(origin).slice(0, 3) === String(destination).slice(0, 3)
+    ? 'b2c-local'
+    : originState && originState === destinationState
+      ? 'b2c-state'
+      : SPECIAL_STATES.has(destinationState)
+        ? 'b2c-special'
+        : METRO_PREFIXES.includes(String(destination).slice(0, 3))
+          ? 'b2c-metro'
+          : 'b2c-roi'
+  const preferred = state.zones.find((item) => item.id === preferredId)
+  if (preferred && zoneAllowsPostalCode(preferred, 'IN', destination)) return preferred
+  return state.zones.find((item) => normalizeBusinessType(item.business_type) === 'b2c' && zonePostalCodes(item).length === 0)
 }
 const B2B_STATE_ZONE = {
   'punjab': 'North', 'haryana': 'North', 'himachal pradesh': 'North', 'delhi': 'North', 'uttar pradesh': 'North', 'uttarakhand': 'North', 'chandigarh': 'North', 'rajasthan': 'North',
@@ -1079,13 +1139,23 @@ const B2B_STATE_ZONE = {
   'madhya pradesh': 'Central', 'chhattisgarh': 'Central',
 }
 const b2bZoneFor = (destination) => {
+  const explicit = explicitZoneForPostalCode('b2b', 'IN', destination)
+  if (explicit) return explicit
   const stateName = normalizedState(destination)
   const name = SPECIAL_STATES.has(stateName) ? 'North East' : (B2B_STATE_ZONE[stateName] || 'North East')
-  return state.zones.find((item) => item.business_type === 'b2b' && item.name === name)
+  const configured = state.zones.find((item) => (
+    normalizeBusinessType(item.business_type) === 'b2b' &&
+    Array.isArray(item.states) &&
+    item.states.some((value) => String(value).trim().toLowerCase() === stateName) &&
+    zoneAllowsPostalCode(item, 'IN', destination)
+  ))
+  if (configured) return configured
+  const preferred = state.zones.find((item) => normalizeBusinessType(item.business_type) === 'b2b' && item.name === name)
+  return preferred && zoneAllowsPostalCode(preferred, 'IN', destination) ? preferred : undefined
 }
 const zoneForShipmentDestination = (shipmentType, destination, destinationCountryCode) => {
   const code = normalizeCountryCode(destinationCountryCode)
-  if (code !== 'IN') return zoneForCountry(shipmentType, code)
+  if (code !== 'IN') return zoneForCountry(shipmentType, code, destination)
   return shipmentType === 'b2b' ? b2bZoneFor(destination) : null
 }
 const courierSupportsRoute = (courier, origin, destination, shipmentType, paymentType, weightKg, originCountryCode, destinationCountryCode) => {
@@ -1099,7 +1169,7 @@ const courierSupportsRoute = (courier, origin, destination, shipmentType, paymen
   const originCountry = normalizeCountryCode(originCountryCode)
   const destinationCountry = normalizeCountryCode(destinationCountryCode)
   if (originCountry !== 'IN' || destinationCountry !== 'IN') {
-    return originCountry === 'IN' && postalCodeIsValid(destinationCountry, destination) && Boolean(zoneForCountry(shipmentType, destinationCountry))
+    return originCountry === 'IN' && postalCodeIsValid(destinationCountry, destination) && Boolean(zoneForCountry(shipmentType, destinationCountry, destination))
   }
   if (courier.pincodeScope === 'all_india') return Boolean(officeForPincode(origin) && officeForPincode(destination))
   const covered = new Set(normalizePincodes(courier.pincodes))
@@ -1129,7 +1199,7 @@ const manualCourierQuote = (courier, rate, body) => {
   const chargeableWeight = Math.max(weightKg, Number(rate.min_weight || courier.minWeightKg || 0.5))
   const zoneRate = rate.rates?.[zone.name] || {}
   const originZone = shipmentType === 'b2b'
-    ? (originCountryCode === 'IN' ? b2bZoneFor(origin) : zoneForCountry('b2b', originCountryCode))
+    ? (originCountryCode === 'IN' ? b2bZoneFor(origin) : zoneForCountry('b2b', originCountryCode, origin))
     : null
   const matrixRate = shipmentType === 'b2b' && originZone
     ? state.b2bZoneRates.find((item) => (
@@ -2001,6 +2071,46 @@ http.createServer(async (req, res) => {
       return send({ success: true, message: 'Pincode removed.' })
     }
 
+    if (path === '/api/admin/zones/postal-options' && req.method === 'GET') {
+      const country = String(requestUrl.searchParams.get('country') || '').trim()
+      const countryCode = serviceabilityCountryCode(country)
+      const search = String(requestUrl.searchParams.get('search') || '').trim().toLowerCase()
+      const selectedStates = new Set(
+        String(requestUrl.searchParams.get('states') || '')
+          .split('|')
+          .map((value) => value.trim().toLowerCase())
+          .filter(Boolean),
+      )
+      const page = Math.max(1, Number(requestUrl.searchParams.get('page') || 1))
+      const limit = Math.min(100, Math.max(1, Number(requestUrl.searchParams.get('limit') || 50)))
+      let locations = []
+      if (countryCode === 'IN') {
+        locations = serviceabilityLocations().filter((item) => String(item.country || 'India').toLowerCase() === 'india')
+      } else if (countryCode) {
+        locations = globalPostalRows
+          .filter((row) => row[0] === countryCode)
+          .map(globalPostalLocation)
+      }
+      if (selectedStates.size) {
+        locations = locations.filter((item) => selectedStates.has(String(item.state || '').trim().toLowerCase()))
+      }
+      if (search) {
+        locations = locations.filter((item) => (
+          `${item.pincode || ''} ${item.city || ''} ${item.state || ''} ${item.country || ''}`
+            .toLowerCase()
+            .includes(search)
+        ))
+      }
+      const start = (page - 1) * limit
+      return send({
+        success: true,
+        data: locations.slice(start, start + limit),
+        total: locations.length,
+        page,
+        limit,
+        totalPages: Math.max(1, Math.ceil(locations.length / limit)),
+      })
+    }
     if (path === '/api/admin/zones' && req.method === 'GET') {
       const businessType = normalizeBusinessType(requestUrl.searchParams.get('business_type') || '')
       const zones = requestUrl.searchParams.get('business_type') ? state.zones.filter((item) => normalizeBusinessType(item.business_type) === businessType) : state.zones

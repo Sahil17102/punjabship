@@ -30,6 +30,14 @@ export const zoneService = {
     const res = await api.get(`${API_URL}${zoneId}`)
     return res.data
   },
+  getPostalOptions: async (params = {}) => {
+    const query = new URLSearchParams()
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') query.set(key, String(value))
+    })
+    const res = await api.get(`${API_URL}postal-options?${query.toString()}`)
+    return res.data
+  },
   createZone: async (data) => {
     const res = await api.post(API_URL, data)
     return res.data

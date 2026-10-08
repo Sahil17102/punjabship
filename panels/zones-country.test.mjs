@@ -101,6 +101,58 @@ test('B2C and B2B zones persist domestic and international countries', { timeout
     assert.equal(b2bQuote.payload.data[0].approxZone.id, expected.id.replace('b2c-', 'b2b-'))
   }
 
+  const postalOptions = await request(`${baseUrl}/api/admin/zones/postal-options?country=Canada&search=A0A&limit=10`, { token })
+  assert.equal(postalOptions.response.status, 200)
+  assert.equal(postalOptions.payload.data[0].pincode, 'A0A')
+  assert.equal(postalOptions.payload.data[0].country, 'Canada')
+
+  const restrictAndQuote = async ({ zoneId, businessType, country, countryCode, pincode, destination, expectedZoneId }) => {
+    const restricted = await request(`${baseUrl}/api/admin/zones/${zoneId}`, {
+      token,
+      method: 'PUT',
+      body: { postal_codes: [{ country, pincode }] },
+    })
+    assert.equal(restricted.response.status, 200)
+    assert.equal(restricted.payload.postal_codes[0].pincode, pincode)
+
+    const endpoint = businessType === 'b2b' ? '/api/couriers/b2b-rate-quotes' : '/api/couriers/available-to-user'
+    const quote = await request(`${baseUrl}${endpoint}`, {
+      method: 'POST',
+      body: {
+        origin: '110001', destination,
+        pickupCountryCode: 'IN', deliveryCountryCode: countryCode,
+        shipment_type: businessType, payment_type: 'prepaid',
+        weight: businessType === 'b2b' ? 10000 : 500, order_amount: 2000,
+      },
+    })
+    assert.equal(quote.response.status, 200)
+    assert.equal(quote.payload.data[0].approxZone.id, expectedZoneId)
+
+    const reset = await request(`${baseUrl}/api/admin/zones/${zoneId}`, {
+      token,
+      method: 'PUT',
+      body: { postal_codes: [] },
+    })
+    assert.equal(reset.response.status, 200)
+  }
+
+  await restrictAndQuote({
+    zoneId: 'b2c-canada', businessType: 'b2c', country: 'Canada', countryCode: 'CA',
+    pincode: 'A0A', destination: 'A0A 1B2', expectedZoneId: 'b2c-canada',
+  })
+  await restrictAndQuote({
+    zoneId: 'b2b-canada', businessType: 'b2b', country: 'Canada', countryCode: 'CA',
+    pincode: 'A0A', destination: 'A0A 1B2', expectedZoneId: 'b2b-canada',
+  })
+  await restrictAndQuote({
+    zoneId: 'b2c-special', businessType: 'b2c', country: 'India', countryCode: 'IN',
+    pincode: '141001', destination: '141001', expectedZoneId: 'b2c-special',
+  })
+  await restrictAndQuote({
+    zoneId: 'b2b-south', businessType: 'b2b', country: 'India', countryCode: 'IN',
+    pincode: '141001', destination: '141001', expectedZoneId: 'b2b-south',
+  })
+
   const rate = await request(`${baseUrl}/api/admin/couriers/shipping-rate/91001/starter-b2c`, {
     token,
     method: 'PUT',
