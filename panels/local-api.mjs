@@ -1,8 +1,10 @@
 import http from 'node:http'
 import { randomBytes, randomInt, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto'
 import { createRequire } from 'node:module'
+import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { gunzipSync } from 'node:zlib'
 import Busboy from 'busboy'
 import {
   createShipGlobalClient,
@@ -43,6 +45,16 @@ const SHIPGLOBAL_SERVICE = process.env.SHIPGLOBAL_SERVICE || 'Shipglobal Direct'
 const SHIPGLOBAL_CURRENCY = process.env.SHIPGLOBAL_CURRENCY || 'INR'
 const shipGlobal = createShipGlobalClient()
 const otpRequestAttempts = new Map()
+const globalPostalData = (() => {
+  try {
+    return JSON.parse(gunzipSync(readFileSync(new URL('./data/global-postal-codes.json.gz', import.meta.url))))
+  } catch (error) {
+    console.error('Unable to load global postal-code data.', error.message)
+    return { countries: {}, rows: [] }
+  }
+})()
+const globalPostalRows = Array.isArray(globalPostalData.rows) ? globalPostalData.rows : []
+const globalPostalCountries = globalPostalData.countries || {}
 
 const hashPassword = (password) => {
   const salt = randomBytes(16).toString('hex')
@@ -511,34 +523,12 @@ const save = () => {
   })
 }
 if (stateNeedsSave) await stateStore.save(state)
-const countryCoverageLocations = () => {
-  const countries = [...new Set(state.zones
-    .filter((zone) => zone.is_active !== false)
-    .flatMap((zone) => normalizeZoneCountries(zone))
-    .map((country) => String(country || '').trim())
-    .filter((country) => country && country.toLowerCase() !== 'india'))]
-  return countries.map((country) => ({
-    id: `country-coverage-${country.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
-    pincode: 'All valid postal codes',
-    city: 'All cities',
-    state: 'All states / provinces',
-    country,
-    coverage: 'country-wide',
-    tags: ['country-wide'],
-    source: 'PunjabShip zone coverage',
-    isSystemCoverage: true,
-  }))
-}
 const serviceabilityLocations = () => {
   const deleted = new Set(state.deletedServiceabilityLocationIds)
   const seeded = getSeededServiceabilityLocations()
     .filter((location) => !deleted.has(location.id))
     .map((location) => ({ ...location, ...(state.serviceabilityOverrides[location.id] || {}) }))
-  return [
-    ...countryCoverageLocations(),
-    ...seeded,
-    ...state.customServiceabilityLocations.filter((location) => !deleted.has(location.id)),
-  ]
+  return [...seeded, ...state.customServiceabilityLocations.filter((location) => !deleted.has(location.id))]
 }
 const brandAddress = 'SODHI ONLINE SERVICES, Near Verka Plant, Barnala Raikot Road, Mahal Kalan, Barnala, Punjab 148104'
 state.invoicePreferences ??= { brandName: 'PunjabShip', sellerAddress: brandAddress, supportEmail: 'info@punjabshiplogistics.com', supportPhone: '+91 84878 81121', prefix: 'PS-INV', template: 'classic', includeLogo: true, includeSignature: false }
@@ -1041,6 +1031,25 @@ const postalCodeIsValid = (countryCode, value) => {
   if (code === 'CA') return /^[A-Z]\d[A-Z][ -]?\d[A-Z]\d$/.test(postalCode)
   return /^[A-Z0-9][A-Z0-9 -]{1,10}[A-Z0-9]$/.test(postalCode)
 }
+const serviceabilityCountryCode = (value) => {
+  const country = String(value || '').trim().toLowerCase()
+  if (!country) return ''
+  if (country === 'india' || country === 'in') return 'IN'
+  if (country === 'america' || country === 'usa') return 'US'
+  return Object.entries(globalPostalCountries)
+    .find(([code, name]) => code.toLowerCase() === country || String(name).toLowerCase() === country)?.[0] || ''
+}
+const globalPostalLocation = (row) => ({
+  id: `postal-${row[0]}-${String(row[1]).toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+  pincode: row[1],
+  city: row[2] || '',
+  state: row[3] || '',
+  country: globalPostalCountries[row[0]] || countryNameFromCode(row[0]),
+  countryCode: row[0],
+  tags: ['postal-data'],
+  source: 'GeoNames',
+  isSystemPostalCode: true,
+})
 const zoneForCountry = (businessType, countryCode) => {
   const code = normalizeCountryCode(countryCode)
   const name = countryNameFromCode(code).toLowerCase()
@@ -2907,21 +2916,12 @@ http.createServer(async (req, res) => {
       const pincode = String(requestUrl.searchParams.get('pincode') || '').trim().toLowerCase()
       const city = String(requestUrl.searchParams.get('city') || '').trim().toLowerCase()
       const stateName = String(requestUrl.searchParams.get('state') || '').trim().toLowerCase()
-      const country = String(requestUrl.searchParams.get('country') || 'India').trim()
+      const country = String(requestUrl.searchParams.get('country') || '').trim()
       const countryLower = country.toLowerCase()
-      const inferredCountryCode = countryLower === 'india' ? 'IN' : countryLower === 'canada' ? 'CA' : ['united states', 'usa', 'america'].includes(countryLower) ? 'US' : 'INT'
-      if (postalCodeIsValid(inferredCountryCode, pincode) && !city && !stateName) {
-        const custom = state.customServiceabilityLocations.find((item) => item.pincode.toLowerCase() === pincode && String(item.country || 'India').toLowerCase() === countryLower)
-        if (inferredCountryCode !== 'IN') {
-          const supported = ['b2c', 'b2b'].some((businessType) => zoneForCountry(businessType, inferredCountryCode === 'INT' ? country : inferredCountryCode))
-          const location = custom || (supported ? {
-            id: `international-${encodeURIComponent(countryLower)}-${encodeURIComponent(pincode)}`,
-            pincode: pincode.toUpperCase(), city: '', state: '', country,
-            tags: ['country-wide'], source: 'PunjabShip zone coverage',
-          } : null)
-          const locations = location ? [location] : []
-          return send({ success: true, data: locations, total: locations.length, totalCount: locations.length, page: 1, limit, totalPages: 1 })
-        }
+      const selectedCountryCode = serviceabilityCountryCode(country)
+      const lookupCountryCode = selectedCountryCode || (!country && /^[1-9]\d{5}$/.test(pincode) ? 'IN' : '')
+      if (lookupCountryCode === 'IN' && postalCodeIsValid('IN', pincode) && !city && !stateName) {
+        const custom = state.customServiceabilityLocations.find((item) => item.pincode.toLowerCase() === pincode && String(item.country || 'India').toLowerCase() === 'india')
         const office = officeForPincode(pincode)
         const location = custom || (office ? {
           id: `india-pincode-${pincode}`,
@@ -2937,13 +2937,31 @@ http.createServer(async (req, res) => {
         const locations = location ? [location] : []
         return send({ success: true, data: locations, total: locations.length, totalCount: locations.length, page: 1, limit, totalPages: 1 })
       }
+
+      let postalRows = selectedCountryCode === 'IN' ? [] : globalPostalRows
+      if (country && !selectedCountryCode) postalRows = []
+      else if (selectedCountryCode && selectedCountryCode !== 'IN') postalRows = postalRows.filter((row) => row[0] === selectedCountryCode)
+      if (pincode) postalRows = postalRows.filter((row) => String(row[1]).toLowerCase().includes(pincode))
+      if (city) postalRows = postalRows.filter((row) => String(row[2]).toLowerCase().includes(city))
+      if (stateName) postalRows = postalRows.filter((row) => String(row[3]).toLowerCase().includes(stateName))
+
       let locations = serviceabilityLocations()
-      if (pincode) locations = locations.filter((item) => item.coverage === 'country-wide' || item.pincode.toLowerCase().includes(pincode))
-      if (city) locations = locations.filter((item) => item.coverage === 'country-wide' || `${item.city} ${item.district || ''}`.toLowerCase().includes(city))
-      if (stateName) locations = locations.filter((item) => item.coverage === 'country-wide' || item.state.toLowerCase().includes(stateName))
-      if (String(requestUrl.searchParams.get('country') || '').trim()) locations = locations.filter((item) => String(item.country || 'India').toLowerCase().includes(countryLower))
+      if (pincode) locations = locations.filter((item) => item.pincode.toLowerCase().includes(pincode))
+      if (city) locations = locations.filter((item) => `${item.city} ${item.district || ''}`.toLowerCase().includes(city))
+      if (stateName) locations = locations.filter((item) => item.state.toLowerCase().includes(stateName))
+      if (country) locations = locations.filter((item) => String(item.country || 'India').toLowerCase() === countryLower)
+
       const start = (page - 1) * limit
-      return send({ success: true, data: locations.slice(start, start + limit), total: locations.length, totalCount: locations.length, page, limit, totalPages: Math.max(1, Math.ceil(locations.length / limit)) })
+      const total = postalRows.length + locations.length
+      const data = []
+      if (start < postalRows.length) {
+        data.push(...postalRows.slice(start, Math.min(postalRows.length, start + limit)).map(globalPostalLocation))
+      }
+      const localStart = Math.max(0, start - postalRows.length)
+      if (data.length < limit && localStart < locations.length) {
+        data.push(...locations.slice(localStart, localStart + (limit - data.length)))
+      }
+      return send({ success: true, data, total, totalCount: total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) })
     }
     if (path === '/api/serviceability/locations' && req.method === 'POST') {
       const pincode = String(body.pincode || '').trim().toUpperCase()
@@ -2965,7 +2983,7 @@ http.createServer(async (req, res) => {
       const id = serviceabilityMatch[1]
       const location = serviceabilityLocations().find((item) => item.id === id)
       if (!location) return send({ success: false, error: 'Location not found.' }, 404)
-      if (location.isSystemCoverage) return send({ success: false, error: 'Country-wide zone coverage is managed from Zones.' }, 409)
+      if (location.isSystemPostalCode) return send({ success: false, error: 'Imported postal-code data cannot be edited here.' }, 409)
       const updated = { ...location, ...body, id, pincode: String(body.pincode ?? location.pincode).trim().toUpperCase(), country: String(body.country ?? location.country ?? 'India').trim() }
       const customIndex = state.customServiceabilityLocations.findIndex((item) => item.id === id)
       if (customIndex >= 0) state.customServiceabilityLocations[customIndex] = updated
@@ -2977,7 +2995,7 @@ http.createServer(async (req, res) => {
       const id = serviceabilityMatch[1]
       const location = serviceabilityLocations().find((item) => item.id === id)
       if (!location) return send({ success: false, error: 'Location not found.' }, 404)
-      if (location.isSystemCoverage) return send({ success: false, error: 'Country-wide zone coverage is managed from Zones.' }, 409)
+      if (location.isSystemPostalCode) return send({ success: false, error: 'Imported postal-code data cannot be deleted here.' }, 409)
       state.customServiceabilityLocations = state.customServiceabilityLocations.filter((item) => item.id !== id)
       delete state.serviceabilityOverrides[id]
       if (!state.deletedServiceabilityLocationIds.includes(id)) state.deletedServiceabilityLocationIds.push(id)

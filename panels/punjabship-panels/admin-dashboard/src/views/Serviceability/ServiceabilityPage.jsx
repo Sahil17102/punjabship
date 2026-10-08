@@ -141,10 +141,10 @@ const ServiceabilityPage = () => {
   }
 
   const handleDeleteSelected = () => {
-    const systemCoverageIds = new Set(
-      (data?.data || []).filter((row) => row.isSystemCoverage).map((row) => row.id),
+    const systemPostalIds = new Set(
+      (data?.data || []).filter((row) => row.isSystemPostalCode).map((row) => row.id),
     )
-    selectedRows.filter((id) => !systemCoverageIds.has(id)).forEach((id) => deleteLocation(id))
+    selectedRows.filter((id) => !systemPostalIds.has(id)).forEach((id) => deleteLocation(id))
     setSelectedRows([])
   }
 
@@ -223,8 +223,8 @@ const ServiceabilityPage = () => {
             )
           },
         }}
-        renderActions={(row) => row.isSystemCoverage ? (
-          <Badge colorScheme="green">Managed by zone</Badge>
+        renderActions={(row) => row.isSystemPostalCode ? (
+          <Badge colorScheme="green">Postal dataset</Badge>
         ) : (
           <IconButton
             aria-label="Edit"

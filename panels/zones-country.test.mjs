@@ -164,22 +164,24 @@ test('B2C and B2B zones persist domestic and international countries', { timeout
   assert.equal(domestic.response.status, 200)
   assert.deepEqual(domestic.payload.find((zone) => zone.id === 'b2c-local').countries, ['India'])
 
-  const canadaServiceability = await request(`${baseUrl}/api/serviceability/locations?country=Canada&pincode=K1A%200B1`)
+  const canadaServiceability = await request(`${baseUrl}/api/serviceability/locations?country=Canada&pincode=A0A`)
   assert.equal(canadaServiceability.response.status, 200)
   assert.equal(canadaServiceability.payload.data[0].country, 'Canada')
-  assert.equal(canadaServiceability.payload.data[0].pincode, 'K1A 0B1')
+  assert.equal(canadaServiceability.payload.data[0].pincode, 'A0A')
+  assert.match(canadaServiceability.payload.data[0].city, /Avalon Peninsula/)
 
-  const franceCoverage = await request(`${baseUrl}/api/serviceability/locations?country=France&pincode=75`)
-  assert.equal(franceCoverage.response.status, 200)
-  assert.equal(franceCoverage.payload.total, 1)
-  assert.equal(franceCoverage.payload.data[0].country, 'France')
-  assert.equal(franceCoverage.payload.data[0].pincode, 'All valid postal codes')
-  assert.equal(franceCoverage.payload.data[0].isSystemCoverage, true)
+  const francePostalCodes = await request(`${baseUrl}/api/serviceability/locations?country=France&pincode=75`)
+  assert.equal(francePostalCodes.response.status, 200)
+  assert.ok(francePostalCodes.payload.total > 100)
+  assert.equal(francePostalCodes.payload.data[0].country, 'France')
+  assert.ok(francePostalCodes.payload.data[0].pincode.includes('75'))
+  assert.equal(francePostalCodes.payload.data[0].isSystemPostalCode, true)
 
-  const allCoverage = await request(`${baseUrl}/api/serviceability/locations?country=Canada`)
-  assert.equal(allCoverage.response.status, 200)
-  assert.equal(allCoverage.payload.data[0].country, 'Canada')
-  assert.equal(allCoverage.payload.data[0].coverage, 'country-wide')
+  const allCanadaPostalCodes = await request(`${baseUrl}/api/serviceability/locations?country=Canada`)
+  assert.equal(allCanadaPostalCodes.response.status, 200)
+  assert.ok(allCanadaPostalCodes.payload.total > 1600)
+  assert.equal(allCanadaPostalCodes.payload.data[0].country, 'Canada')
+  assert.notEqual(allCanadaPostalCodes.payload.data[0].pincode, 'All valid postal codes')
 
   const customUsLocation = await request(`${baseUrl}/api/serviceability/locations`, {
     token,

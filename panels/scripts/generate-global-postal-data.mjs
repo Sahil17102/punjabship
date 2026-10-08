@@ -1,0 +1,56 @@
+import { createReadStream, mkdirSync, writeFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { gzipSync } from 'node:zlib'
+import readline from 'node:readline'
+
+const source = process.argv[2]
+const output = resolve(process.argv[3] || fileURLToPath(new URL('../data/global-postal-codes.json.gz', import.meta.url)))
+
+if (!source) {
+  console.error('Usage: node panels/scripts/generate-global-postal-data.mjs <allCountries.txt> [output.gz]')
+  process.exit(1)
+}
+
+const countries = new Map([
+  ['CA', 'Canada'], ['US', 'United States'],
+  ['AT', 'Austria'], ['BE', 'Belgium'], ['BG', 'Bulgaria'], ['HR', 'Croatia'],
+  ['CY', 'Cyprus'], ['CZ', 'Czechia'], ['DK', 'Denmark'], ['EE', 'Estonia'],
+  ['FI', 'Finland'], ['FR', 'France'], ['DE', 'Germany'], ['GR', 'Greece'],
+  ['HU', 'Hungary'], ['IS', 'Iceland'], ['IE', 'Ireland'], ['IT', 'Italy'],
+  ['LV', 'Latvia'], ['LI', 'Liechtenstein'], ['LT', 'Lithuania'],
+  ['LU', 'Luxembourg'], ['MT', 'Malta'], ['NL', 'Netherlands'], ['NO', 'Norway'],
+  ['PL', 'Poland'], ['PT', 'Portugal'], ['RO', 'Romania'], ['SK', 'Slovakia'],
+  ['SI', 'Slovenia'], ['ES', 'Spain'], ['SE', 'Sweden'], ['CH', 'Switzerland'],
+  ['GB', 'United Kingdom'],
+])
+const priority = new Map([...countries.keys()].map((code, index) => [code, index]))
+const unique = new Map()
+const input = readline.createInterface({ input: createReadStream(resolve(source)), crlfDelay: Infinity })
+
+for await (const line of input) {
+  const columns = line.split('\t')
+  const code = columns[0]
+  if (!countries.has(code)) continue
+  const postalCode = String(columns[1] || '').trim().toUpperCase()
+  if (!postalCode) continue
+  const key = `${code}\u0000${postalCode}`
+  const next = [code, postalCode, String(columns[2] || '').trim(), String(columns[3] || '').trim()]
+  const current = unique.get(key)
+  if (!current || (!current[2] && next[2]) || (!current[3] && next[3])) unique.set(key, next)
+}
+
+const rows = [...unique.values()].sort((a, b) => (
+  priority.get(a[0]) - priority.get(b[0]) ||
+  a[1].localeCompare(b[1], 'en', { numeric: true })
+))
+const payload = {
+  source: 'GeoNames Postal Code Data',
+  generatedAt: new Date().toISOString(),
+  countries: Object.fromEntries(countries),
+  rows,
+}
+
+mkdirSync(dirname(output), { recursive: true })
+writeFileSync(output, gzipSync(JSON.stringify(payload), { level: 9 }))
+console.log(`Generated ${rows.length.toLocaleString('en-US')} unique postal-code rows at ${output}`)

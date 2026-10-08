@@ -13,6 +13,8 @@ Client: select **Email + password**, enter the credentials, and check the form c
 
 This is a lightweight JSON-backed deployment, not a database-backed production API. Profile settings, wallets, manual couriers, postal-code coverage, zones, B2C/B2B rate cards, manual shipment bookings and tracking updates are saved to `local-data.json`. A default **PunjabShip Manual** courier, India domestic zones, and country-wide Canada, United States and Europe zones with starter B2C/B2B rates are seeded automatically, so they remain available after a fresh deployment. ShipGlobal Vendor API booking, tracking and cancel/refund routes are available when `SHIPGLOBAL_USERNAME` and `SHIPGLOBAL_PASSWORD` are configured on the backend; credentials are never exposed to either frontend. Realtime connections are disabled, and a production database plus ShipGlobal webhook/polling policy are still recommended before processing customer shipments at scale.
 
+Serviceability includes 417,425 individual Canada, United States and Europe postal-code records generated from the GeoNames postal-code export, in addition to the India Post records. The API filters and paginates this data server-side; regeneration instructions and attribution are in `data/README.md`.
+
 Brand details match the PunjabShip landing page: info@punjabshiplogistics.com, +91 84878 81121, SODHI ONLINE SERVICES, Near Verka Plant, Barnala Raikot Road, Mahal Kalan, Barnala, Punjab 148104. Login email addresses above are local demo identifiers; no live mailbox is created.
 
 Source folders: `punjabship-panels/courier-cart-client` and `punjabship-panels/admin-dashboard`. The demo API is `local-api.mjs`, bound to loopback port 5004.
