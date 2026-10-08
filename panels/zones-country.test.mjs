@@ -106,6 +106,11 @@ test('B2C and B2B zones persist domestic and international countries', { timeout
   assert.equal(postalOptions.payload.data[0].pincode, 'A0A')
   assert.equal(postalOptions.payload.data[0].country, 'Canada')
 
+  const uniqueIndiaPostalOption = await request(`${baseUrl}/api/admin/zones/postal-options?country=India&states=TELANGANA&search=500005&limit=10`, { token })
+  assert.equal(uniqueIndiaPostalOption.response.status, 200)
+  assert.equal(uniqueIndiaPostalOption.payload.total, 1)
+  assert.equal(uniqueIndiaPostalOption.payload.data[0].pincode, '500005')
+
   const restrictAndQuote = async ({ zoneId, businessType, country, countryCode, pincode, destination, expectedZoneId }) => {
     const restricted = await request(`${baseUrl}/api/admin/zones/${zoneId}`, {
       token,

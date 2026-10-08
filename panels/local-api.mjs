@@ -2101,6 +2101,10 @@ http.createServer(async (req, res) => {
             .includes(search)
         ))
       }
+      locations = [...new Map(locations.map((item) => [
+        `${String(item.country || country).toLowerCase()}::${normalizedPostalValue(item.pincode)}`,
+        item,
+      ])).values()]
       const start = (page - 1) * limit
       return send({
         success: true,
