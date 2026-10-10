@@ -275,7 +275,20 @@ export const SelectCourierForm = ({ shipment_type }: { shipment_type: 'b2b' | 'b
       </Paper>
     )
   if (isError) return <Typography color="error">Failed to fetch couriers</Typography>
-  if (!availableCouriers.length) return <Typography>No couriers available</Typography>
+  if (!availableCouriers.length) {
+    const incompleteCanadaPostalCode =
+      deliveryCountryCode === 'CA' &&
+      !/^[ABCEGHJKLMNPRSTVXY]\d[ABCEGHJ-NPRSTV-Z] ?\d[ABCEGHJ-NPRSTV-Z]\d$/.test(
+        destinationPincode.trim().toUpperCase(),
+      )
+    return (
+      <Typography color={incompleteCanadaPostalCode ? 'warning.main' : undefined}>
+        {incompleteCanadaPostalCode
+          ? 'Enter the complete Canadian postal code (for example A0A 1B0). A0A alone is only a routing area.'
+          : 'No couriers available'}
+      </Typography>
+    )
+  }
 
   const getModeIcon = (mode?: string) => {
     const normalizedMode = String(mode || '').toLowerCase()

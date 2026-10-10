@@ -25,7 +25,22 @@ const DeliveryDetailsForm = ({ type = 'b2c' }: { type?: FormType }) => {
   const pincode = String(watch('pincode') || '')
   const countryCode = String(watch('country') || 'IN').trim().toUpperCase()
   const isIndia = countryCode === 'IN'
+  const isCanada = countryCode === 'CA'
   const normalizedPincode = isIndia ? normalizePincode(pincode) : pincode.trim().toUpperCase()
+  const postalCodePattern = isIndia
+    ? { value: /^\d{6}$/, message: 'Enter 6-digit pincode' }
+    : isCanada
+      ? {
+          value: /^[ABCEGHJKLMNPRSTVXY]\d[ABCEGHJ-NPRSTV-Z] ?\d[ABCEGHJ-NPRSTV-Z]\d$/,
+          message: 'Enter the full Canadian postal code, e.g. A0A 1B0',
+        }
+      : {
+          value: /^[A-Za-z0-9][A-Za-z0-9 -]{2,11}$/,
+          message: 'Enter a valid postal code',
+        }
+  const postalCodeHint = isCanada
+    ? 'Use the complete 6-character postal code, e.g. A0A 1B0 (not only A0A)'
+    : undefined
 
   const {
     data: location,
@@ -130,9 +145,7 @@ const DeliveryDetailsForm = ({ type = 'b2c' }: { type?: FormType }) => {
                   pattern: { value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, message: 'Enter a valid email address' },
                 }),
                 ...(fieldItem.name === 'pincode' && {
-                  pattern: isIndia
-                    ? { value: /^\d{6}$/, message: 'Enter 6-digit pincode' }
-                    : { value: /^[A-Za-z0-9][A-Za-z0-9 -]{2,11}$/, message: 'Enter a valid postal code' },
+                  pattern: postalCodePattern,
                 }),
                 ...(fieldItem.name === 'country' && {
                   pattern: { value: /^[A-Za-z]{2}$/, message: 'Use a 2-letter ISO country code' },
@@ -174,7 +187,16 @@ const DeliveryDetailsForm = ({ type = 'b2c' }: { type?: FormType }) => {
                   {...field}
                   onChange={(event) => {
                     if (fieldItem.name === 'pincode') {
-                      field.onChange(isIndia ? normalizePincode(event.target.value) : event.target.value.toUpperCase().slice(0, 12))
+                      if (isIndia) {
+                        field.onChange(normalizePincode(event.target.value))
+                        return
+                      }
+                      if (isCanada) {
+                        const compact = event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6)
+                        field.onChange(compact.length > 3 ? `${compact.slice(0, 3)} ${compact.slice(3)}` : compact)
+                        return
+                      }
+                      field.onChange(event.target.value.toUpperCase().slice(0, 12))
                       return
                     }
                     field.onChange(event)
@@ -184,7 +206,7 @@ const DeliveryDetailsForm = ({ type = 'b2c' }: { type?: FormType }) => {
                   maxLength={isAddressField ? 200 : undefined}
                   disabled={isNonEditable}
                   error={!!getFieldError(fieldItem.name)}
-                  helperText={getFieldError(fieldItem.name)}
+                  helperText={getFieldError(fieldItem.name) || (fieldItem.name === 'pincode' ? postalCodeHint : undefined)}
                   postfix={showLoader ? <CircularProgress size={16} /> : null}
                   topMargin={false}
                   dense
