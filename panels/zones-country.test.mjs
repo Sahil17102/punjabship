@@ -101,6 +101,21 @@ test('B2C and B2B zones persist domestic and international countries', { timeout
     assert.equal(b2bQuote.payload.data[0].approxZone.id, expected.id.replace('b2c-', 'b2b-'))
   }
 
+  for (const legacyCountryValue of ['Canada', undefined]) {
+    const legacyCanadaQuote = await request(`${baseUrl}/api/couriers/available-to-user`, {
+      method: 'POST',
+      body: {
+        origin: '141001', destination: 'K1A 0B1',
+        pickupCountryCode: 'IN',
+        ...(legacyCountryValue ? { deliveryCountryCode: legacyCountryValue } : {}),
+        shipment_type: 'b2c', payment_type: 'prepaid', weight: 500, order_amount: 2000,
+      },
+    })
+    assert.equal(legacyCanadaQuote.response.status, 200)
+    assert.equal(legacyCanadaQuote.payload.data[0].name, 'PunjabShip Manual')
+    assert.equal(legacyCanadaQuote.payload.data[0].approxZone.id, 'b2c-canada')
+  }
+
   const postalOptions = await request(`${baseUrl}/api/admin/zones/postal-options?country=Canada&search=A0A&limit=10`, { token })
   assert.equal(postalOptions.response.status, 200)
   assert.equal(postalOptions.payload.data[0].pincode, 'A0A')
@@ -225,6 +240,8 @@ test('B2C and B2B zones persist domestic and international countries', { timeout
   assert.equal(canadaServiceability.response.status, 200)
   assert.equal(canadaServiceability.payload.data[0].country, 'Canada')
   assert.equal(canadaServiceability.payload.data[0].pincode, 'A0A')
+  assert.equal(canadaServiceability.payload.data[0].postalCodeType, 'routing-prefix')
+  assert.deepEqual(canadaServiceability.payload.data[0].tags, ['routing-area'])
   assert.match(canadaServiceability.payload.data[0].city, /Avalon Peninsula/)
 
   const francePostalCodes = await request(`${baseUrl}/api/serviceability/locations?country=France&pincode=75`)
@@ -233,6 +250,8 @@ test('B2C and B2B zones persist domestic and international countries', { timeout
   assert.equal(francePostalCodes.payload.data[0].country, 'France')
   assert.ok(francePostalCodes.payload.data[0].pincode.includes('75'))
   assert.equal(francePostalCodes.payload.data[0].isSystemPostalCode, true)
+  assert.equal(francePostalCodes.payload.data[0].postalCodeType, 'full')
+  assert.deepEqual(francePostalCodes.payload.data[0].tags, ['full-postal-code'])
 
   const allCanadaPostalCodes = await request(`${baseUrl}/api/serviceability/locations?country=Canada`)
   assert.equal(allCanadaPostalCodes.response.status, 200)

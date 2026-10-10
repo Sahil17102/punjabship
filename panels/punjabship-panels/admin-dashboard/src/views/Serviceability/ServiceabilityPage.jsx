@@ -166,7 +166,7 @@ const ServiceabilityPage = () => {
   }
 
   const columns = ['pincode', 'city', 'state', 'country', 'tags']
-  const captions = ['Pincode', 'City', 'State', 'Country', 'Tags']
+  const captions = ['Postal code / routing area', 'City / Area', 'State / Province', 'Country', 'Coverage type']
 
   // Filter definitions for TableFilters component
   const filterDefinitions = [
@@ -213,8 +213,8 @@ const ServiceabilityPage = () => {
             return Array.isArray(tags) ? (
               <HStack spacing={1}>
                 {tags.map((tag, idx) => (
-                  <Badge key={idx} colorScheme="purple">
-                    {tag}
+                  <Badge key={idx} colorScheme={tag === 'routing-area' ? 'orange' : 'green'}>
+                    {tag === 'routing-area' ? 'Routing area / prefix' : tag === 'full-postal-code' ? 'Full postal code' : tag}
                   </Badge>
                 ))}
               </HStack>

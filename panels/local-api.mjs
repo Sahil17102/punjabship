@@ -55,6 +55,7 @@ const globalPostalData = (() => {
 })()
 const globalPostalRows = Array.isArray(globalPostalData.rows) ? globalPostalData.rows : []
 const globalPostalCountries = globalPostalData.countries || {}
+const globalPostalCodeTypes = globalPostalData.postalCodeTypes || {}
 
 const hashPassword = (password) => {
   const salt = randomBytes(16).toString('hex')
@@ -1044,7 +1045,24 @@ const locationFields = (pincode) => {
   const office = officeForPincode(pincode)
   return { city: office?.area || office?.district || '', state: office?.state || '' }
 }
-const normalizeCountryCode = (value) => String(value || 'IN').trim().toUpperCase()
+const COUNTRY_CODE_ALIASES = new Map([
+  ['INDIA', 'IN'],
+  ['CANADA', 'CA'],
+  ['UNITED STATES', 'US'],
+  ['UNITED STATES OF AMERICA', 'US'],
+  ['USA', 'US'],
+  ['AMERICA', 'US'],
+  ['UNITED KINGDOM', 'GB'],
+  ['UK', 'GB'],
+])
+const normalizeCountryCode = (value) => {
+  const normalized = String(value || 'IN').trim().toUpperCase()
+  if (/^[A-Z]{2}$/.test(normalized)) return normalized
+  const alias = COUNTRY_CODE_ALIASES.get(normalized)
+  if (alias) return alias
+  return Object.entries(globalPostalCountries)
+    .find(([, name]) => String(name || '').trim().toUpperCase() === normalized)?.[0] || normalized
+}
 const countryDisplayNames = new Intl.DisplayNames(['en'], { type: 'region' })
 const countryNameFromCode = (value) => {
   const code = normalizeCountryCode(value)
@@ -1053,10 +1071,33 @@ const countryNameFromCode = (value) => {
 const postalCodeIsValid = (countryCode, value) => {
   const code = normalizeCountryCode(countryCode)
   const postalCode = String(value || '').trim().toUpperCase()
-  if (code === 'IN') return /^[1-9]\d{5}$/.test(postalCode)
-  if (code === 'US') return /^\d{5}(?:-\d{4})?$/.test(postalCode)
-  if (code === 'CA') return /^[A-Z]\d[A-Z][ -]?\d[A-Z]\d$/.test(postalCode)
-  return /^[A-Z0-9][A-Z0-9 -]{1,10}[A-Z0-9]$/.test(postalCode)
+  const patterns = {
+    IN: /^[1-9]\d{5}$/,
+    CA: /^[ABCEGHJKLMNPRSTVXY]\d[ABCEGHJ-NPRSTV-Z] ?\d[ABCEGHJ-NPRSTV-Z]\d$/,
+    US: /^\d{5}(?:[ -]\d{4})?$/,
+    AT: /^\d{4}$/, BE: /^\d{4}$/, BG: /^\d{4}$/, HR: /^\d{5}$/,
+    CY: /^\d{4}$/, CZ: /^\d{3} ?\d{2}$/, DK: /^\d{4}$/, EE: /^\d{5}$/,
+    FI: /^\d{5}$/, FR: /^\d{2} ?\d{3}$/, DE: /^\d{5}$/, GR: /^\d{3} ?\d{2}$/,
+    HU: /^\d{4}$/, IS: /^\d{3}$/, IE: /^[\dA-Z]{3} ?[\dA-Z]{4}$/,
+    IT: /^\d{5}$/, LV: /^LV-\d{4}$/, LI: /^(?:948[5-9]|949[0-8])$/,
+    LT: /^\d{5}$/, LU: /^\d{4}$/, MT: /^[A-Z]{3} ?\d{2,4}$/,
+    NL: /^[1-9]\d{3} ?(?:[A-RT-Z][A-Z]|S[BCE-RT-Z])$/, NO: /^\d{4}$/,
+    PL: /^\d{2}-\d{3}$/, PT: /^\d{4}-\d{3}$/, RO: /^\d{6}$/,
+    SK: /^\d{3} ?\d{2}$/, SI: /^\d{4}$/, ES: /^\d{5}$/, SE: /^\d{3} ?\d{2}$/,
+    CH: /^\d{4}$/,
+    GB: /^(?:GIR ?0AA|(?:[A-Z]{1,2}\d[A-Z\d]? ?\d[ABD-HJLNP-UW-Z]{2})|BFPO ?\d{1,4})$/,
+  }
+  return patterns[code]
+    ? patterns[code].test(postalCode)
+    : /^[A-Z0-9][A-Z0-9 -]{1,10}[A-Z0-9]$/.test(postalCode)
+}
+const destinationCountryCodeFor = (body, postalCode) => {
+  const explicit = body.deliveryCountryCode || body.delivery_country_code || body.country_code
+  if (String(explicit || '').trim()) return normalizeCountryCode(explicit)
+  // Older cached seller bundles did not send the destination country. Canadian
+  // postal codes are unambiguous, so keep those orders serviceable as well.
+  if (postalCodeIsValid('CA', postalCode)) return 'CA'
+  return 'IN'
 }
 const serviceabilityCountryCode = (value) => {
   const country = String(value || '').trim().toLowerCase()
@@ -1066,17 +1107,21 @@ const serviceabilityCountryCode = (value) => {
   return Object.entries(globalPostalCountries)
     .find(([code, name]) => code.toLowerCase() === country || String(name).toLowerCase() === country)?.[0] || ''
 }
-const globalPostalLocation = (row) => ({
-  id: `postal-${row[0]}-${String(row[1]).toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
-  pincode: row[1],
-  city: row[2] || '',
-  state: row[3] || '',
-  country: globalPostalCountries[row[0]] || countryNameFromCode(row[0]),
-  countryCode: row[0],
-  tags: ['postal-data'],
-  source: 'GeoNames',
-  isSystemPostalCode: true,
-})
+const globalPostalLocation = (row) => {
+  const postalCodeType = globalPostalCodeTypes[row[0]] || 'full'
+  return {
+    id: `postal-${row[0]}-${String(row[1]).toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+    pincode: row[1],
+    city: row[2] || '',
+    state: row[3] || '',
+    country: globalPostalCountries[row[0]] || countryNameFromCode(row[0]),
+    countryCode: row[0],
+    postalCodeType,
+    tags: [postalCodeType === 'routing-prefix' ? 'routing-area' : 'full-postal-code'],
+    source: 'GeoNames',
+    isSystemPostalCode: true,
+  }
+}
 const normalizedPostalValue = (value) => String(value || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '')
 const zonePostalCodes = (zone) => normalizeZonePostalCodes(zone)
 const postalSelectionMatches = (selection, countryCode, postalCode) => {
@@ -1190,7 +1235,7 @@ const manualCourierQuote = (courier, rate, body) => {
   const weightKg = Math.max(0, Number(body.weight || 0) / 1000)
   const paymentType = String(body.payment_type || (Number(body.cod) ? 'cod' : 'prepaid')).toLowerCase()
   const originCountryCode = normalizeCountryCode(body.pickupCountryCode || body.pickup_country_code || 'IN')
-  const destinationCountryCode = normalizeCountryCode(body.deliveryCountryCode || body.delivery_country_code || body.country_code || 'IN')
+  const destinationCountryCode = destinationCountryCodeFor(body, destination)
   if (!courierSupportsRoute(courier, origin, destination, shipmentType, paymentType, weightKg, originCountryCode, destinationCountryCode)) return null
   const zone = destinationCountryCode === 'IN'
     ? (shipmentType === 'b2b' ? b2bZoneFor(destination) : b2cZoneFor(origin, destination))

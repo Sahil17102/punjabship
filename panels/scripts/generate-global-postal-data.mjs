@@ -25,6 +25,30 @@ const countries = new Map([
   ['GB', 'United Kingdom'],
 ])
 const priority = new Map([...countries.keys()].map((code, index) => [code, index]))
+const postalCodeTypes = {
+  CA: 'routing-prefix',
+  IE: 'routing-prefix',
+  MT: 'routing-prefix',
+  NL: 'routing-prefix',
+  GB: 'routing-prefix',
+}
+
+// GeoNames intentionally publishes routing areas instead of delivery-point
+// postcodes for some countries. It also includes country prefixes / CEDEX
+// labels in a few exports. Keep those records useful without presenting them
+// as complete postal codes.
+const normalizeGeoNamesPostalCode = (countryCode, value) => {
+  const postalCode = String(value || '').trim().toUpperCase().replace(/\s+/g, ' ')
+  if (countryCode === 'CA') return postalCode.match(/^[A-Z]\d[A-Z]/)?.[0] || ''
+  if (countryCode === 'IE') return postalCode.match(/^[A-Z0-9]{3}/)?.[0] || ''
+  if (countryCode === 'MT') return postalCode.match(/^[A-Z]{3}/)?.[0] || ''
+  if (countryCode === 'NL') return postalCode.match(/^\d{4}/)?.[0] || ''
+  if (countryCode === 'GB') return postalCode.split(' ')[0] || ''
+  if (countryCode === 'FR') return postalCode.match(/^\d{5}/)?.[0] || ''
+  if (countryCode === 'LU') return postalCode.replace(/^L-/, '')
+  return postalCode
+}
+
 const unique = new Map()
 const input = readline.createInterface({ input: createReadStream(resolve(source)), crlfDelay: Infinity })
 
@@ -32,7 +56,7 @@ for await (const line of input) {
   const columns = line.split('\t')
   const code = columns[0]
   if (!countries.has(code)) continue
-  const postalCode = String(columns[1] || '').trim().toUpperCase()
+  const postalCode = normalizeGeoNamesPostalCode(code, columns[1])
   if (!postalCode) continue
   const key = `${code}\u0000${postalCode}`
   const next = [code, postalCode, String(columns[2] || '').trim(), String(columns[3] || '').trim()]
@@ -48,6 +72,7 @@ const payload = {
   source: 'GeoNames Postal Code Data',
   generatedAt: new Date().toISOString(),
   countries: Object.fromEntries(countries),
+  postalCodeTypes,
   rows,
 }
 
