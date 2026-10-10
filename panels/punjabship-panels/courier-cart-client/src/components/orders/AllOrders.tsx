@@ -47,6 +47,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { isEmbeddedShopifyContext } from '../../utils/shopifyEmbedded'
 import {
   downloadBulkOrderDocumentsZip,
+  downloadFreshOrderDocument,
   fetchAllOrders,
   fetchOrdersForCsvExport,
   generateManifestService,
@@ -61,7 +62,6 @@ import {
   useRetryFailedManifest,
 } from '../../hooks/Orders/useOrders'
 import { usePickupAddresses } from '../../hooks/Pickup/usePickupAddresses'
-import { usePresignedDownloadMutation } from '../../hooks/Uploads/usePresignedDownloadUrls'
 import { FilterBar, type FilterField } from '../FilterBar'
 import { SupportTicketForm } from '../support/SupportTicketForm'
 import StatusChip from '../UI/chip/StatusChip'
@@ -89,15 +89,12 @@ import {
 import {
   BULK_DOCUMENT_DOWNLOAD_LIMIT,
   BULK_LABEL_PDF_DOWNLOAD_LIMIT,
-  downloadFile,
   getArchiveFileNameFromHeaders,
   getActionableErrorMessage,
   getB2CManifestIdentifier,
   getB2CManifestProvider,
   getDocumentReference,
-  getDownloadFileName,
   isB2CManifestEligible,
-  isHttpUrl,
   summarizeMessages,
   summarizeOrderNumbers,
   type DocumentType,
@@ -308,7 +305,6 @@ const AllOrders = () => {
     sortOrder: filters.sortOrder || 'desc',
   }
   const queryClient = useQueryClient()
-  const { mutateAsync: presignDownloads } = usePresignedDownloadMutation()
   const { mutateAsync: retryFailedManifest } = useRetryFailedManifest()
   const { mutateAsync: regenerateDocuments, isPending: regeneratingDocuments } =
     useRegenerateOrderDocuments()
@@ -1006,54 +1002,34 @@ const AllOrders = () => {
   }
 
   const handleSingleDocumentDownload = async (order: Order, type: DocumentType) => {
-    const reference = getDocumentReference(order, type)
-    const keyValue = reference.key ? String(reference.key).trim() : ''
-    const urlValue = reference.url ? String(reference.url).trim() : ''
+    if (!order.id) {
+      toast.open({ message: 'Order is not available for download.', severity: 'error' })
+      return
+    }
 
-    if (isEmbeddedShopifyContext() && order.id) {
-      try {
+    try {
+      if (isEmbeddedShopifyContext()) {
         const { blob, headers } = await downloadBulkOrderDocumentsZip([order.id], type)
         const fileName = getArchiveFileNameFromHeaders(
           headers,
           `punjabship-${type}-${String(order.order_number || order.id)}.${type === 'label' ? 'pdf' : 'zip'}`,
         )
         saveAs(blob, fileName)
-      } catch (error) {
-        toast.open({
-          message: getActionableErrorMessage(error, `Unable to download ${type}. Please try again.`),
-          severity: 'error',
-        })
-      }
-      return
-    }
-
-    if (keyValue) {
-      try {
-        const urls = await presignDownloads({ keys: [keyValue] })
-        const signedUrl = Array.isArray(urls) ? urls[0] : urls
-        if (!signedUrl) {
-          throw new Error(`${type} is not available yet.`)
-        }
-        await downloadFile(signedUrl, getDownloadFileName(order, type, keyValue))
-        return
-      } catch (error) {
-        toast.open({
-          message: getActionableErrorMessage(error, `Unable to download ${type}.`),
-          severity: 'error',
-        })
         return
       }
-    }
 
-    if (urlValue && isHttpUrl(urlValue)) {
-      window.open(urlValue, '_blank', 'noopener,noreferrer')
-      return
+      const { blob, headers } = await downloadFreshOrderDocument(order.id, type)
+      const fileName = getArchiveFileNameFromHeaders(
+        headers,
+        `${String(order.order_number || order.id)}-${type}.pdf`,
+      )
+      saveAs(blob, fileName)
+    } catch (error) {
+      toast.open({
+        message: getActionableErrorMessage(error, `Unable to download ${type}. Please try again.`),
+        severity: 'error',
+      })
     }
-
-    toast.open({
-      message: `${type === 'label' ? 'Label' : type === 'invoice' ? 'Invoice' : 'Manifest'} is not available yet.`,
-      severity: 'error',
-    })
   }
 
   const renderOrderActionsMenu = (row: Order) => {

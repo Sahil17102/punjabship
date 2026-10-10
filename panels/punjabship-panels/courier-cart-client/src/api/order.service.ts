@@ -368,6 +368,21 @@ export interface GenerateManifestResponse {
 
 export type BulkOrderDocumentDownloadType = 'label' | 'invoice' | 'manifest'
 
+export const downloadFreshOrderDocument = async (
+  orderId: string | number,
+  documentType: BulkOrderDocumentDownloadType,
+) => {
+  const res = await axiosInstance.get(
+    `/orders/${encodeURIComponent(String(orderId))}/documents/${documentType}`,
+    { responseType: 'blob', timeout: 60000 },
+  )
+
+  return {
+    blob: res.data as Blob,
+    headers: res.headers as Record<string, string | undefined>,
+  }
+}
+
 export const downloadBulkOrderDocumentsZip = async (
   orderIds: Array<string | number>,
   documentType: BulkOrderDocumentDownloadType,

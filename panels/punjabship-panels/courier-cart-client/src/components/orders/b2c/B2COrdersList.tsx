@@ -23,6 +23,7 @@ import moment from 'moment'
 import { useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import {
   downloadBulkOrderDocumentsZip,
+  downloadFreshOrderDocument,
   fetchB2COrdersByUser,
   fetchOrdersForCsvExport,
   generateManifestService,
@@ -37,7 +38,6 @@ import {
   useRetryFailedManifest,
 } from '../../../hooks/Orders/useOrders'
 import { usePickupAddresses } from '../../../hooks/Pickup/usePickupAddresses'
-import { usePresignedDownloadMutation } from '../../../hooks/Uploads/usePresignedDownloadUrls'
 import useEmployeePermissions from '../../../hooks/User/useEmployeePermissions'
 import { useKycVerification } from '../../../hooks/User/useKycVerification'
 import type { B2COrder } from '../../../types/generic.types'
@@ -95,15 +95,12 @@ import { SupportTicketForm } from '../../support/SupportTicketForm'
 import {
   BULK_DOCUMENT_DOWNLOAD_LIMIT,
   BULK_LABEL_PDF_DOWNLOAD_LIMIT,
-  downloadFile,
   getArchiveFileNameFromHeaders,
   getActionableErrorMessage,
   getB2CManifestIdentifier,
   getB2CManifestProvider,
   getDocumentReference,
-  getDownloadFileName,
   isB2CManifestEligible,
-  isHttpUrl,
   summarizeMessages,
   summarizeOrderNumbers,
   type DocumentType,
@@ -329,7 +326,6 @@ const B2COrdersList = () => {
   const { mutateAsync: regenerateDocuments, isPending: regeneratingDocuments } =
     useRegenerateOrderDocuments()
   const queryClient = useQueryClient()
-  const { mutateAsync: presignDownloads } = usePresignedDownloadMutation()
   const { canCancelOrders, canExportOrders, canViewCustomerDetails } = useEmployeePermissions()
   const { data: couriers } = useAllCouriersWithDetails()
   const { data: warehouses } = usePickupAddresses()
@@ -1035,54 +1031,34 @@ const B2COrdersList = () => {
       return
     }
 
-    const reference = getDocumentReference(order, type)
-    const keyValue = reference.key ? String(reference.key).trim() : ''
-    const urlValue = reference.url ? String(reference.url).trim() : ''
+    if (!order.id) {
+      toast.open({ message: 'Order is not available for download.', severity: 'error' })
+      return
+    }
 
-    if (isEmbeddedShopifyContext() && order.id) {
-      try {
+    try {
+      if (isEmbeddedShopifyContext()) {
         const { blob, headers } = await downloadBulkOrderDocumentsZip([order.id], type)
         const fileName = getArchiveFileNameFromHeaders(
           headers,
           `punjabship-${type}-${String(order.order_number || order.id)}.${type === 'label' ? 'pdf' : 'zip'}`,
         )
         saveAs(blob, fileName)
-      } catch (error) {
-        toast.open({
-          message: getActionableErrorMessage(error, `Unable to download ${type}. Please try again.`),
-          severity: 'error',
-        })
-      }
-      return
-    }
-
-    if (keyValue) {
-      try {
-        const urls = await presignDownloads({ keys: [keyValue] })
-        const signedUrl = Array.isArray(urls) ? urls[0] : urls
-        if (!signedUrl) {
-          throw new Error(`${type} is not available yet.`)
-        }
-        await downloadFile(signedUrl, getDownloadFileName(order, type, keyValue))
-        return
-      } catch (error) {
-        toast.open({
-          message: getActionableErrorMessage(error, `Unable to download ${type}.`),
-          severity: 'error',
-        })
         return
       }
-    }
 
-    if (urlValue && isHttpUrl(urlValue)) {
-      window.open(urlValue, '_blank', 'noopener,noreferrer')
-      return
+      const { blob, headers } = await downloadFreshOrderDocument(order.id, type)
+      const fileName = getArchiveFileNameFromHeaders(
+        headers,
+        `${String(order.order_number || order.id)}-${type}.pdf`,
+      )
+      saveAs(blob, fileName)
+    } catch (error) {
+      toast.open({
+        message: getActionableErrorMessage(error, `Unable to download ${type}. Please try again.`),
+        severity: 'error',
+      })
     }
-
-    toast.open({
-      message: `${type === 'label' ? 'Label' : type === 'invoice' ? 'Invoice' : 'Manifest'} is not available yet.`,
-      severity: 'error',
-    })
   }
 
   /* ───────────── Filter Fields ───────────── */
