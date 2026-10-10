@@ -446,6 +446,7 @@ const AllOrders = () => {
       .trim()
       .toLowerCase()
 
+    if (providerText.includes('manual')) return 'manual'
     if (providerText.includes('delhivery')) return 'delhivery'
     if (providerText.includes('ekart')) return 'ekart'
     if (providerText.includes('xpressbees') || providerText.includes('xpress bees')) {

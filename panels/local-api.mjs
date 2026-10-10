@@ -3118,15 +3118,92 @@ http.createServer(async (req, res) => {
       return send({ success: true, results, summary: { total: results.length, found: results.filter((item) => item.success).length, failed: results.filter((item) => !item.success).length } })
     }
     if (path === '/api/shipments/cancel' && req.method === 'POST') {
-      const order = state.orders.find((item) => String(item.id) === String(body.orderId) || String(item.order_number) === String(body.orderId))
+      const seller = currentSeller(req)
+      const admin = isAdminRequest(req)
+      if (!seller && !admin) return send({ success: false, message: 'Authentication required.' }, 401)
+      const order = state.orders.find((item) => (
+        (String(item.id) === String(body.orderId) || String(item.order_number) === String(body.orderId)) &&
+        (admin || item.user_id === seller.id)
+      ))
       if (!order) return send({ success: false, message: 'Order not found.' }, 404)
-      if (!isShipGlobalOrder(order)) return send({ success: false, message: 'This live cancellation route currently supports ShipGlobal orders.' }, 400)
+      const status = String(order.order_status || order.status || '').trim().toLowerCase().replace(/[\s-]+/g, '_')
+      if (status === 'cancelled') {
+        return send({ success: true, message: 'Shipment is already cancelled.', order: orderForPanels(order), alreadyCancelled: true })
+      }
+      if (['delivered', 'rto_delivered'].includes(status)) {
+        return send({ success: false, message: 'Delivered shipments cannot be cancelled.' }, 409)
+      }
+
+      const now = new Date().toISOString()
+      if (isManualCourierOrder(order)) {
+        const shipment = state.manualShipments.find((item) => item.orderId === order.id)
+        const owner = state.users.find((item) => item.id === order.user_id)
+        const refundableFreight = Math.max(0, Number(order.wallet_debit_amount || order.freight_charges || 0))
+        let refundedAmount = Number(order.cancellation_refund_amount || 0)
+
+        if (refundableFreight > 0 && !order.cancellation_refunded_at && owner) {
+          owner.walletBalance = Number((walletBalanceOf(owner) + refundableFreight).toFixed(2))
+          refundedAmount = refundableFreight
+          order.cancellation_refund_amount = refundableFreight
+          order.cancellation_refunded_at = now
+          state.walletTransactions.unshift({
+            id: `wallet-transaction-${randomUUID()}`,
+            wallet_id: walletIdOf(owner),
+            user_id: owner.id,
+            amount: refundableFreight,
+            type: 'credit',
+            reason: 'shipment_cancellation_refund',
+            category: 'shipping_refund',
+            ref: order.awb_number || order.order_number || order.id,
+            meta: { courier_partner: order.courier_partner || 'PunjabShip Manual', order_id: order.id },
+            currency: 'INR',
+            created_at: now,
+            balance_after: owner.walletBalance,
+          })
+        }
+
+        if (shipment) {
+          shipment.operationStatus = 'cancelled'
+          shipment.updatedAt = now
+          state.manualShipmentEvents.unshift({
+            id: `event-${randomUUID()}`,
+            shipmentId: shipment.id,
+            statusCode: 'cancelled',
+            statusText: 'Shipment cancelled by merchant',
+            location: '',
+            remarks: refundedAmount > 0 ? `INR ${refundedAmount.toFixed(2)} freight refunded to wallet` : '',
+            eventAt: now,
+            source: admin ? 'admin' : 'merchant',
+          })
+        }
+        order.order_status = 'cancelled'
+        order.status = 'cancelled'
+        order.provider_last_status = 'Shipment cancelled by merchant'
+        order.cancelled_at = now
+        order.updated_at = now
+        order.tracking_events = [
+          { status_code: 'cancelled', event_time: now, message: order.provider_last_status, location: '' },
+          ...(Array.isArray(order.tracking_events) ? order.tracking_events : []),
+        ]
+        await stateStore.save(state)
+        return send({
+          success: true,
+          message: refundedAmount > 0
+            ? `Shipment cancelled. INR ${refundedAmount.toFixed(2)} refunded to wallet.`
+            : 'Shipment cancelled.',
+          order: orderForPanels(order),
+          walletRefund: refundedAmount,
+          walletBalance: owner ? walletBalanceOf(owner) : null,
+        })
+      }
+
+      if (!isShipGlobalOrder(order)) return send({ success: false, message: 'Cancellation is not supported for this courier.' }, 400)
       if (!order.awb_number) return send({ success: false, message: 'ShipGlobal AWB is required before cancellation.' }, 400)
       const providerResult = await shipGlobal.cancelRefund(order.awb_number)
       order.order_status = 'cancelled'
       order.status = 'cancelled'
       order.provider_last_status = providerResult.data?.msg || providerResult.data?.message || 'Cancelled and refund requested'
-      order.cancelled_at = new Date().toISOString()
+      order.cancelled_at = now
       order.updated_at = order.cancelled_at
       save()
       return send({ success: true, message: order.provider_last_status, order: orderForPanels(order), providerResponse: providerResult.data })

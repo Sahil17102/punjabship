@@ -1121,6 +1121,7 @@ const B2COrdersList = () => {
     const providerText = String(`${row.integration_type || ''} ${row.courier_partner || ''}`)
       .trim()
       .toLowerCase()
+    if (providerText.includes('manual')) return 'manual'
     if (providerText.includes('delhivery')) return 'delhivery'
     if (providerText.includes('ekart')) return 'ekart'
     if (providerText.includes('xpressbees') || providerText.includes('xpress bees')) {
@@ -1149,7 +1150,7 @@ const B2COrdersList = () => {
     const status = (row.order_status || '').toLowerCase()
     const terminalStatuses = new Set(['cancellation_requested', 'cancelled', 'delivered', 'rto_delivered'])
     const provider = getProviderKey(row)
-    const providerSupports = ['delhivery', 'ekart', 'shadowfax', 'xpressbees', 'amazon', 'velocity'].includes(provider)
+    const providerSupports = ['manual', 'delhivery', 'ekart', 'shadowfax', 'xpressbees', 'amazon', 'velocity'].includes(provider)
 
     return providerSupports && !terminalStatuses.has(status)
   }
