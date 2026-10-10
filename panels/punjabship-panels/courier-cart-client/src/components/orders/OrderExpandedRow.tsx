@@ -11,8 +11,7 @@ import {
   MdShoppingBag,
 } from 'react-icons/md'
 import useEmployeePermissions from '../../hooks/User/useEmployeePermissions'
-import { usePresignedDownloadMutation } from '../../hooks/Uploads/usePresignedDownloadUrls'
-import { downloadBulkOrderDocumentsZip } from '../../api/order.service'
+import { downloadBulkOrderDocumentsZip, downloadFreshOrderDocument } from '../../api/order.service'
 import { isEmbeddedShopifyContext } from '../../utils/shopifyEmbedded'
 import AWBLink from '../UI/AWBLink'
 import { toast } from '../UI/Toast'
@@ -29,8 +28,6 @@ export const OrderExpandedRow = ({ row, type = 'b2c' }: OrderExpandedRowProps) =
   const ACCENT = '#0877C9'
   const sortCodeValue = String(row?.sort_code || '').trim()
   const { canExportOrders, canViewCustomerDetails } = useEmployeePermissions()
-
-  const { mutateAsync, isPending } = usePresignedDownloadMutation()
 
   const maskedPhone = row?.buyer_phone ? 'Hidden by access policy' : 'Not available'
   const maskedAddress = 'Customer address is hidden for this employee account.'
@@ -80,11 +77,6 @@ export const OrderExpandedRow = ({ row, type = 'b2c' }: OrderExpandedRowProps) =
     </Paper>
   )
 
-  const getFriendlyMissingMessage = (fileType: 'label' | 'invoice' | 'manifest') =>
-    `${
-      fileType === 'label' ? 'Label' : fileType === 'invoice' ? 'Invoice' : 'Manifest'
-    } is not available yet. Please try again in a few minutes or regenerate it if needed.`
-
   const handleDownload = async (
     key: string,
     fileType: 'label' | 'invoice' | 'manifest' = 'label',
@@ -94,6 +86,11 @@ export const OrderExpandedRow = ({ row, type = 'b2c' }: OrderExpandedRowProps) =
         message: 'You do not have permission to download shipment documents.',
         severity: 'error',
       })
+      return
+    }
+
+    if (!row?.id) {
+      toast.open({ message: 'Order is not available for download.', severity: 'error' })
       return
     }
 
@@ -110,33 +107,19 @@ export const OrderExpandedRow = ({ row, type = 'b2c' }: OrderExpandedRowProps) =
         return
       }
 
-      const urls = await mutateAsync({ keys: [key] })
-      const url = Array.isArray(urls) ? urls[0] : urls
-
-      if (!url) {
-        toast.open({
-          message: getFriendlyMissingMessage(fileType),
-          severity: 'error',
-        })
-        return
-      }
-
-      const link = document.createElement('a')
-      link.href = url
-      link.download = key.split('/').pop() ?? ''
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
+      const { blob, headers } = await downloadFreshOrderDocument(row.id, fileType)
+      const fileName = getArchiveFileNameFromHeaders(
+        headers,
+        `${String(row?.order_number || row.id)}-${fileType}.pdf`,
+      )
+      saveAs(blob, fileName)
     } catch (err: unknown) {
       if (!isEmbeddedShopifyContext()) console.error('Download failed', err)
       const error = err as { response?: { data?: { message?: string } }; message?: string }
       const errorMessage =
         error?.response?.data?.message || error?.message || 'Failed to download file'
       toast.open({
-        message:
-          errorMessage.includes('not found') || errorMessage.includes('404')
-            ? getFriendlyMissingMessage(fileType)
-            : `Failed to download ${fileType}: ${errorMessage}`,
+        message: `Failed to download ${fileType}: ${errorMessage}`,
         severity: 'error',
       })
     } finally {
@@ -145,56 +128,10 @@ export const OrderExpandedRow = ({ row, type = 'b2c' }: OrderExpandedRowProps) =
   }
 
   const handleDirectDownload = async (
-    url: string,
+    _url: string,
     fileType: 'label' | 'invoice' | 'manifest' = 'label',
     stateKey = `${fileType}-direct`,
-  ) => {
-    if (!canExportOrders) {
-      toast.open({
-        message: 'You do not have permission to download shipment documents.',
-        severity: 'error',
-      })
-      return
-    }
-
-    try {
-      setDownloadingKey(stateKey)
-      if (isEmbeddedShopifyContext() && row?.id) {
-        const { blob, headers } = await downloadBulkOrderDocumentsZip([row.id], fileType)
-        const fileName = getArchiveFileNameFromHeaders(
-          headers,
-          `punjabship-${fileType}-${String(row?.order_number || row.id)}.${fileType === 'label' ? 'pdf' : 'zip'}`,
-        )
-        saveAs(blob, fileName)
-        return
-      }
-
-      // Validate URL before attempting download
-      if (!url || !url.startsWith('http')) {
-        toast.open({
-          message: `Invalid ${fileType} URL`,
-          severity: 'error',
-        })
-        return
-      }
-
-      const link = document.createElement('a')
-      link.href = url
-      link.target = '_blank'
-      link.download = url.split('/').pop() ?? ''
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-    } catch (error) {
-      if (!isEmbeddedShopifyContext()) console.error('Direct download failed', error)
-      toast.open({
-        message: `Failed to open ${fileType}`,
-        severity: 'error',
-      })
-    } finally {
-      setDownloadingKey(null)
-    }
-  }
+  ) => handleDownload(stateKey, fileType)
 
   // Actions (cancel/reverse) are rendered in the table Actions column now
 
@@ -257,7 +194,7 @@ export const OrderExpandedRow = ({ row, type = 'b2c' }: OrderExpandedRowProps) =
                 severity: 'error',
               })
             }}
-            disabled={Boolean((isDownloading || isPending) && !urlValue)}
+            disabled={isDownloading}
           >
             {isDownloading ? 'Downloading...' : 'Download'}
           </Button>
