@@ -36,6 +36,11 @@ export async function fetchShipGlobalStatus() {
   return response.data?.data || {}
 }
 
+export async function fetchSMECourierStatus() {
+  const response = await api.get('/admin/integrations/smecourier/status')
+  return response.data?.data || {}
+}
+
 export async function fetchBulkTracking(awbs = []) {
   try {
     const cleaned = awbs.map((awb) => String(awb || '').trim()).filter(Boolean)

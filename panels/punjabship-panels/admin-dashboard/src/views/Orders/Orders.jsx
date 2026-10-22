@@ -16,7 +16,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
 import { FiDownload, FiRefreshCw } from 'react-icons/fi'
 import { useLocation } from 'react-router-dom'
-import { exportOrdersToCSV, fetchShipGlobalStatus } from 'services/order.service'
+import { exportOrdersToCSV, fetchShipGlobalStatus, fetchSMECourierStatus } from 'services/order.service'
 
 const getRouteFiltersFromSearch = (search) => {
   const params = new URLSearchParams(search)
@@ -51,6 +51,11 @@ const Orders = () => {
   const { data: shipGlobalStatus } = useQuery({
     queryKey: ['shipglobal-status'],
     queryFn: fetchShipGlobalStatus,
+    staleTime: 60000,
+  })
+  const { data: smeCourierStatus } = useQuery({
+    queryKey: ['smecourier-status'],
+    queryFn: fetchSMECourierStatus,
     staleTime: 60000,
   })
   const toast = useToast()
@@ -173,6 +178,7 @@ const Orders = () => {
             { label: 'Pending', value: stats.pending.toLocaleString() },
             { label: 'Delivered', value: stats.delivered.toLocaleString() },
             { label: 'ShipGlobal', value: shipGlobalStatus?.configured ? 'Connected' : 'Setup needed' },
+            { label: 'SME Courier', value: smeCourierStatus?.configured ? 'Connected' : 'Setup needed' },
           ]}
           actions={
             <HStack spacing={3} flexWrap="wrap">

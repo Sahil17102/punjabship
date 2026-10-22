@@ -13,6 +13,7 @@ import {
   mapShipGlobalTracking,
   validateShipGlobalOrder,
 } from './shipglobal.mjs'
+import { createSMECourierClient, extractSMEShipment, mapPunjabShipOrderToSME, validateSMEOrder } from './smecourier.mjs'
 import { createStateStore } from './state-store.mjs'
 import { isMailConfigured, mailStatus, sendOtpEmail, sendPasswordResetEmail } from './mailer.mjs'
 import { csvBoolean, csvHeaderKey, csvNumber, parseCsvObjects } from './csv-imports.mjs'
@@ -44,6 +45,7 @@ const SERVICEABILITY_SEED_SIZE = 27000
 const SHIPGLOBAL_SERVICE = process.env.SHIPGLOBAL_SERVICE || 'Shipglobal Direct'
 const SHIPGLOBAL_CURRENCY = process.env.SHIPGLOBAL_CURRENCY || 'INR'
 const shipGlobal = createShipGlobalClient()
+const smeCourier = createSMECourierClient()
 const otpRequestAttempts = new Map()
 const globalPostalData = (() => {
   try {
@@ -1587,7 +1589,7 @@ http.createServer(async (req, res) => {
       : JSON.parse(raw.toString('utf8'))
     console.log(req.method, path)
 
-    if (path === '' || path === '/api/health') return send({ success: true, mode: 'punjabship-demo-api', storage: stateStore.mode, integrations: { shipglobal: { configured: shipGlobal.isConfigured(), service: SHIPGLOBAL_SERVICE }, email: mailStatus(), objectStorage: storageStatus() } })
+    if (path === '' || path === '/api/health') return send({ success: true, mode: 'punjabship-demo-api', storage: stateStore.mode, integrations: { shipglobal: { configured: shipGlobal.isConfigured(), service: SHIPGLOBAL_SERVICE }, smecourier: { configured: smeCourier.isConfigured(), service: smeCourier.serviceCode }, email: mailStatus(), objectStorage: storageStatus() } })
     if (path === '/api/auth/request-otp' && req.method === 'POST') {
       const email = String(body.email || '').trim().toLowerCase()
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return send({ error: 'Enter a valid email address.' }, 400)
@@ -1925,6 +1927,10 @@ http.createServer(async (req, res) => {
           credentialsSource: 'server_environment',
         },
       })
+    }
+    if (path === '/api/admin/integrations/smecourier/status' && req.method === 'GET') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      return send({ success: true, data: { provider: 'SME Courier FedEx Direct', configured: smeCourier.isConfigured(), liveBookingEnabled: smeCourier.isConfigured(), service: smeCourier.serviceCode, apiBaseUrl: smeCourier.baseUrl, credentialsSource: 'server_environment' } })
     }
     const adminKycMatch = path.match(/^\/api\/admin\/users\/([^/]+)\/kyc$/)
     if (adminKycMatch && req.method === 'GET') {
@@ -2877,7 +2883,16 @@ http.createServer(async (req, res) => {
       // Do not offer sellers a courier that cannot be booked. Integration
       // readiness remains visible to administrators through the status route.
       const includeShipGlobal = configured && normalizeBusinessType(body.shipment_type) === 'b2c' && path !== '/api/couriers/b2b-rate-quotes'
-      return send({ success: true, data: [...manualQuotes, ...(includeShipGlobal ? [courier] : [])] })
+      const smeConfigured = smeCourier.isConfigured()
+      const smeOption = {
+        id: 99002, courier_id: 99002, name: 'SME Courier FedEx Direct', displayName: 'SME Courier FedEx Direct',
+        integration_type: 'smecourier', courier_option_key: 'smecourier-fedex-direct', service: smeCourier.serviceCode,
+        mode: 'air', rate: 0, courier_cost_estimate: null, booking_available: smeConfigured, can_book: smeConfigured,
+        booking_blocked_reason: smeConfigured ? null : 'SME Courier credentials, service and consignor document must be configured by the administrator.',
+        provider_serviceability: { provider: 'SME Courier FedEx Direct', service: smeCourier.serviceCode, booking_available: smeConfigured, can_book: smeConfigured },
+      }
+      const includeSME = smeConfigured && normalizeBusinessType(body.shipment_type) === 'b2c' && path !== '/api/couriers/b2b-rate-quotes'
+      return send({ success: true, data: [...manualQuotes, ...(includeShipGlobal ? [courier] : []), ...(includeSME ? [smeOption] : [])] })
     }
     if (path === '/api/orders/check-order-number' && req.method === 'GET') {
       const orderNumber = String(requestUrl.searchParams.get('orderNumber') || '').trim().toLowerCase()
@@ -2896,6 +2911,30 @@ http.createServer(async (req, res) => {
         const { order, shipment } = createManualShipmentOrder(seller, normalizedBody, 'b2c')
         await stateStore.save(state)
         return send({ success: true, message: 'Manual courier shipment booked.', shipment: orderForPanels(order), manualShipment: shipment }, 201)
+      }
+      if (String(normalizedBody.integration_type || '').toLowerCase() === 'smecourier' || String(normalizedBody.courier_option_key || '').toLowerCase().includes('smecourier')) {
+        if (!smeCourier.isConfigured()) return send({ success: false, message: 'SME Courier credentials and service/document settings are not configured on the backend.' }, 503)
+        if (state.orders.some((order) => String(order.order_number) === String(normalizedBody.order_number))) return send({ success: false, message: 'Order number already exists.' }, 409)
+        const providerPayload = mapPunjabShipOrderToSME({ ...normalizedBody, __seller: seller }, smeCourier.defaults)
+        const missing = validateSMEOrder(providerPayload)
+        if (missing.length) return send({ success: false, message: `Missing SME Courier fields: ${missing.join(', ')}`, missingFields: missing }, 400)
+        const providerResult = await smeCourier.createShipment(providerPayload)
+        const shipmentInfo = extractSMEShipment(providerResult.data)
+        const now = new Date().toISOString()
+        const order = {
+          ...normalizedBody, id: `smecourier-${randomUUID()}`, order_id: normalizedBody.order_number,
+          user_id: seller.id, type: 'b2c', integration_type: 'smecourier', courier_partner: 'SME Courier FedEx Direct',
+          awb_number: shipmentInfo.trackingNo, status: 'shipment_created', order_status: 'shipment_created',
+          provider: 'smecourier', provider_service: smeCourier.serviceCode, provider_last_status: 'Shipment created',
+          provider_response: providerResult.data, smecourier_booking_status: 'booked',
+          smecourier_shipment_id: shipmentInfo.shipmentId, smecourier_label: shipmentInfo.label, smecourier_invoice: shipmentInfo.invoice,
+          buyer_name: normalizedBody.consignee?.name || '', buyer_phone: normalizedBody.consignee?.phone || '',
+          customer_name: normalizedBody.consignee?.name || '', customer_phone: normalizedBody.consignee?.phone || '',
+          created_at: now, updated_at: now,
+        }
+        state.orders.unshift(order)
+        await stateStore.save(state)
+        return send({ success: true, message: 'SME Courier shipment created.', shipment: orderForPanels(order), providerShipment: shipmentInfo }, 201)
       }
       if (!isShipGlobalOrder(normalizedBody)) return send({ success: false, message: 'Select ShipGlobal as the courier partner for live booking.' }, 400)
       if (!shipGlobal.isConfigured()) return send({ success: false, message: 'ShipGlobal production credentials are not configured yet.' }, 503)

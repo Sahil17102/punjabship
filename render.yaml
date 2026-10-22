@@ -35,6 +35,22 @@ services:
         value: Shipglobal Direct
       - key: SHIPGLOBAL_CURRENCY
         value: INR
+      - key: SMECOURIER_API_BASE_URL
+        value: https://portal.smecourier.in
+      - key: SMECOURIER_USERNAME
+        sync: false
+      - key: SMECOURIER_PASSWORD
+        sync: false
+      - key: SMECOURIER_SERVICE_CODE
+        value: INTERNATIONAL PRIORITY
+      - key: SMECOURIER_SHIPMENT_TYPE
+        value: NDox
+      - key: SMECOURIER_DOC_TYPE
+        value: GSTIN
+      - key: SMECOURIER_DOC_VALUE
+        sync: false
+      - key: SMECOURIER_TIMEOUT_MS
+        value: 60000
 
   - type: web
     name: punjabship
