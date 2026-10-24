@@ -103,6 +103,7 @@ export type B2CFormData = {
     | 'icarry'
     | 'shipglobal'
     | 'smecourier'
+    | 'skylink'
   pickupAddress?: string
   pickupGSTNumber?: string
   pickupLocationPOCName?: string

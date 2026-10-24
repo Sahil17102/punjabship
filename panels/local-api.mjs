@@ -14,6 +14,7 @@ import {
   validateShipGlobalOrder,
 } from './shipglobal.mjs'
 import { createSMECourierClient, extractSMEShipment, mapPunjabShipOrderToSME, validateSMEOrder } from './smecourier.mjs'
+import { createSkylinkClient, validateSkylinkOrder } from './skylink.mjs'
 import { createStateStore } from './state-store.mjs'
 import { isMailConfigured, mailStatus, sendOtpEmail, sendPasswordResetEmail } from './mailer.mjs'
 import { csvBoolean, csvHeaderKey, csvNumber, parseCsvObjects } from './csv-imports.mjs'
@@ -46,6 +47,7 @@ const SHIPGLOBAL_SERVICE = process.env.SHIPGLOBAL_SERVICE || 'Shipglobal Direct'
 const SHIPGLOBAL_CURRENCY = process.env.SHIPGLOBAL_CURRENCY || 'INR'
 const shipGlobal = createShipGlobalClient()
 const smeCourier = createSMECourierClient()
+const skylinkCourier = createSkylinkClient()
 const otpRequestAttempts = new Map()
 const globalPostalData = (() => {
   try {
@@ -1394,6 +1396,21 @@ const getSMEIntegrationReadiness = () => {
   }
 }
 
+const getSkylinkIntegrationReadiness = () => {
+  const configured = skylinkCourier.isConfigured()
+  const bookingReady = skylinkCourier.isBookingReady()
+  return {
+    configured,
+    bookingReady,
+    status: !configured ? 'Setup needed' : bookingReady ? 'Connected' : 'Invoice type required',
+    note: !configured
+      ? 'Add Skylink API login and customer code.'
+      : bookingReady
+        ? 'Live Skylink rates and docket booking are configured.'
+        : 'Add the Skylink free-form invoice type ID before enabling docket bookings.',
+  }
+}
+
 const isManualCourierOrder = (body) => String(`${body?.integration_type || ''} ${body?.courier_partner || ''} ${body?.courier_option_key || ''}`).toLowerCase().includes('manual') || state.manualCouriers.some((item) => Number(item.courierId) === Number(body?.courier_id))
 const validateOrderPayload = (body, type) => {
   const errors = []
@@ -1688,7 +1705,7 @@ http.createServer(async (req, res) => {
       : JSON.parse(raw.toString('utf8'))
     console.log(req.method, path)
 
-    if (path === '' || path === '/api/health') return send({ success: true, mode: 'punjabship-demo-api', storage: stateStore.mode, integrations: { shipglobal: { configured: shipGlobal.isConfigured(), service: SHIPGLOBAL_SERVICE }, smecourier: { configured: smeCourier.isConfigured(), service: smeCourier.serviceCode }, email: mailStatus(), objectStorage: storageStatus() } })
+    if (path === '' || path === '/api/health') return send({ success: true, mode: 'punjabship-demo-api', storage: stateStore.mode, integrations: { shipglobal: { configured: shipGlobal.isConfigured(), service: SHIPGLOBAL_SERVICE }, smecourier: { configured: smeCourier.isConfigured(), service: smeCourier.serviceCode }, skylink: { configured: skylinkCourier.isConfigured(), bookingReady: skylinkCourier.isBookingReady() }, email: mailStatus(), objectStorage: storageStatus() } })
     if (path === '/api/auth/request-otp' && req.method === 'POST') {
       const email = String(body.email || '').trim().toLowerCase()
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return send({ error: 'Enter a valid email address.' }, 400)
@@ -2039,6 +2056,25 @@ http.createServer(async (req, res) => {
         return send({ success: true, message: 'SME Courier credentials verified and saved securely.' })
       } catch (error) {
         return send({ success: false, message: error.message || 'Could not configure SME Courier.' }, error.statusCode || 502)
+      }
+    }
+    if (path === '/api/admin/integrations/skylink/status' && req.method === 'GET') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const readiness = getSkylinkIntegrationReadiness()
+      return send({ success: true, data: { provider: 'Skylink', ...readiness, liveBookingEnabled: readiness.bookingReady, customerCodeConfigured: readiness.configured, apiBaseUrl: skylinkCourier.apiBaseUrl, rateBaseUrl: skylinkCourier.rateBaseUrl, credentialsSource: 'server_environment', settings: { companyId: skylinkCourier.defaults.companyId, rateOriginCode: skylinkCourier.defaults.rateOriginCode, productCode: skylinkCourier.defaults.productCode, invoiceTypeId: skylinkCourier.defaults.invoiceTypeId, termsOfTrade: skylinkCourier.defaults.termsOfTrade, invoiceNoteCode: skylinkCourier.defaults.invoiceNoteCode } } })
+    }
+    if (path === '/api/admin/integrations/skylink/credentials' && req.method === 'POST') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      try {
+        await skylinkCourier.configure({
+          email: body.email, password: body.password, rateUsername: body.rateUsername, ratePassword: body.ratePassword,
+          customerCode: body.customerCode, companyId: body.companyId, rateOriginCode: body.rateOriginCode,
+          productCode: body.productCode, invoiceTypeId: body.invoiceTypeId,
+          termsOfTrade: body.termsOfTrade, invoiceNoteCode: body.invoiceNoteCode,
+        })
+        return send({ success: true, message: 'Skylink credentials verified and saved securely.', data: getSkylinkIntegrationReadiness() })
+      } catch (error) {
+        return send({ success: false, message: error.message || 'Could not configure Skylink.' }, error.statusCode || 502)
       }
     }
     const adminKycMatch = path.match(/^\/api\/admin\/users\/([^/]+)\/kyc$/)
@@ -2813,6 +2849,10 @@ http.createServer(async (req, res) => {
       if (!businessType || ['b2b', 'b2c'].includes(businessType)) {
         const readiness = getSMEIntegrationReadiness()
         couriers.push({ id: 99002, courierId: 99002, name: 'SME Courier FedEx Direct', displayName: 'SME Courier FedEx Direct', serviceProvider: 'smecourier', service_provider: 'smecourier', mode: 'air', isEnabled: readiness.bookingReady, businessType: ['b2c', 'b2b'], isIntegration: true, isDemoRateOnly: !readiness.bookingReady, directB2bBookingUnavailable: true, integrationConfigured: readiness.configured, integrationReady: readiness.bookingReady, integrationStatus: readiness.status, integrationNote: readiness.note })
+        if (!businessType || businessType === 'b2c') {
+          const skylinkReadiness = getSkylinkIntegrationReadiness()
+          couriers.push({ id: 99003, courierId: 99003, name: 'Skylink International', displayName: 'Skylink International', serviceProvider: 'skylink', service_provider: 'skylink', mode: 'air', isEnabled: skylinkReadiness.bookingReady, businessType: ['b2c'], isIntegration: true, isDemoRateOnly: false, integrationConfigured: skylinkReadiness.configured, integrationReady: skylinkReadiness.bookingReady, integrationStatus: skylinkReadiness.status, integrationNote: skylinkReadiness.note })
+        }
       }
       const provider = String(requestUrl.searchParams.get('serviceProvider') || '').trim().toLowerCase()
       const search = String(requestUrl.searchParams.get('search') || '').trim().toLowerCase()
@@ -2822,10 +2862,15 @@ http.createServer(async (req, res) => {
     if (path === '/api/couriers/providers' && req.method === 'GET') {
       if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
       const readiness = getSMEIntegrationReadiness()
+      const skylinkReadiness = getSkylinkIntegrationReadiness()
       return send({ success: true, data: [{
         serviceProvider: 'smecourier', displayName: 'SME Courier • FedEx Direct', totalCouriers: 1,
         enabledCouriers: readiness.bookingReady ? 1 : 0, isEnabled: readiness.bookingReady,
         statusLabel: readiness.status, managedByIntegration: true, note: readiness.note,
+      }, {
+        serviceProvider: 'skylink', displayName: 'Skylink International', totalCouriers: 1,
+        enabledCouriers: skylinkReadiness.bookingReady ? 1 : 0, isEnabled: skylinkReadiness.bookingReady,
+        statusLabel: skylinkReadiness.status, managedByIntegration: true, note: skylinkReadiness.note,
       }] })
     }
     if (path === '/api/couriers/full-list' || path === '/api/admin/couriers/list' || path === '/api/couriers/list') {
@@ -2836,6 +2881,10 @@ http.createServer(async (req, res) => {
       if (requestUrl.searchParams.get('includeIntegrations') === 'true' && ['b2b', 'b2c'].includes(businessType)) {
         const readiness = getSMEIntegrationReadiness()
         couriers.push({ id: 99002, courierId: 99002, name: 'SME Courier FedEx Direct', displayName: 'SME Courier FedEx Direct', serviceProvider: 'smecourier', service_provider: 'smecourier', isEnabled: readiness.bookingReady, businessType: ['b2c', 'b2b'], isIntegration: true, isDemoRateOnly: !readiness.bookingReady, directB2bBookingUnavailable: true, integrationConfigured: readiness.configured, integrationReady: readiness.bookingReady, integrationStatus: readiness.status, integrationNote: readiness.note })
+        if (businessType === 'b2c') {
+          const skylinkReadiness = getSkylinkIntegrationReadiness()
+          couriers.push({ id: 99003, courierId: 99003, name: 'Skylink International', displayName: 'Skylink International', serviceProvider: 'skylink', service_provider: 'skylink', isEnabled: skylinkReadiness.bookingReady, businessType: ['b2c'], isIntegration: true, isDemoRateOnly: false, integrationConfigured: skylinkReadiness.configured, integrationReady: skylinkReadiness.bookingReady, integrationStatus: skylinkReadiness.status, integrationNote: skylinkReadiness.note })
+        }
       }
       return send({ success: true, data: couriers })
     }
@@ -3049,7 +3098,24 @@ http.createServer(async (req, res) => {
         provider_serviceability: { provider: 'SME Courier FedEx Direct', service: smeCourier.serviceCode, booking_available: smeQuoteReady, can_book: smeQuoteReady, rate_status: smeQuoteReady ? 'configured' : 'unavailable' },
       }
       const includeSME = smeConfigured && normalizeBusinessType(body.shipment_type) === 'b2c' && path !== '/api/couriers/b2b-rate-quotes'
-      return send({ success: true, data: [...manualQuotes, ...(includeShipGlobal ? [courier] : []), ...(includeSME ? [smeOption] : [])] })
+      let skylinkQuotes = []
+      if (skylinkCourier.isConfigured() && normalizeBusinessType(body.shipment_type || body.shipmentType) === 'b2c' && path !== '/api/couriers/b2b-rate-quotes') {
+        try {
+          skylinkQuotes = await skylinkCourier.quoteRates({
+            ...body,
+            origin: body.origin || body.pickupPincode || body.pickup_pincode,
+            deliveryCountryCode: destinationCountryCodeFor(body, String(body.destination || body.deliveryPincode || '')),
+          })
+        } catch (error) {
+          skylinkQuotes = [{
+            id: 99003, courier_id: 99003, name: 'Skylink International', displayName: 'Skylink International',
+            integration_type: 'skylink', serviceProvider: 'skylink', courier_option_key: 'skylink:unavailable',
+            booking_available: false, can_book: false, booking_blocked_reason: error.message || 'Skylink rates are unavailable for this route.',
+            provider_serviceability: { provider: 'Skylink', booking_available: false, can_book: false },
+          }]
+        }
+      }
+      return send({ success: true, data: [...manualQuotes, ...(includeShipGlobal ? [courier] : []), ...(includeSME ? [smeOption] : []), ...skylinkQuotes] })
     }
     if (path === '/api/orders/check-order-number' && req.method === 'GET') {
       const orderNumber = String(requestUrl.searchParams.get('orderNumber') || '').trim().toLowerCase()
@@ -3112,6 +3178,41 @@ http.createServer(async (req, res) => {
         state.orders.unshift(order)
         await stateStore.save(state)
         return send({ success: true, message: 'SME Courier shipment created.', shipment: orderForPanels(order), providerShipment: shipmentInfo }, 201)
+      }
+      if (String(normalizedBody.integration_type || '').toLowerCase() === 'skylink' || String(normalizedBody.courier_option_key || '').toLowerCase().startsWith('skylink:')) {
+        if (!skylinkCourier.isConfigured() || !skylinkCourier.isBookingReady()) return send({ success: false, message: 'Skylink credentials and the free-form invoice type ID must be configured by an administrator before booking.' }, 503)
+        if (state.orders.some((order) => String(order.order_number) === String(normalizedBody.order_number))) return send({ success: false, message: 'Order number already exists.' }, 409)
+        const optionKey = String(normalizedBody.courier_option_key || '')
+        const quoteId = optionKey.startsWith('skylink:') ? optionKey.slice('skylink:'.length) : ''
+        const quote = skylinkCourier.resolveQuote(quoteId, normalizedBody)
+        const providerOrder = {
+          ...normalizedBody,
+          pickup: {
+            ...(normalizedBody.pickup || {}),
+            pincode: normalizedBody.pickup?.pincode || normalizedBody.pickup?.pickup_pincode || normalizedBody.pickup?.zip_code || '',
+            gst_number: normalizedBody.pickup?.gst_number || normalizedBody.pickup?.gstNumber || '',
+          },
+          __seller: seller,
+        }
+        const missing = validateSkylinkOrder(providerOrder, skylinkCourier.defaults)
+        if (missing.length) return send({ success: false, message: `Missing Skylink fields: ${missing.join(', ')}`, missingFields: missing }, 400)
+        const providerResult = await skylinkCourier.createDocket(providerOrder, quote)
+        const resultData = providerResult.data?.data || providerResult.data
+        const trackingNo = String(resultData?.tracking_no || resultData?.awb_no || providerResult.payload.tracking_no)
+        const now = new Date().toISOString()
+        const order = {
+          ...normalizedBody, id: `skylink-${randomUUID()}`, order_id: normalizedBody.order_number,
+          user_id: seller.id, type: 'b2c', integration_type: 'skylink', courier_partner: 'Skylink International',
+          awb_number: trackingNo, status: 'shipment_created', order_status: 'shipment_created',
+          provider: 'skylink', provider_service: quote.serviceCode, provider_last_status: 'Shipment created',
+          provider_response: providerResult.data, skylink_tracking_no: trackingNo, skylink_booking_status: 'booked',
+          buyer_name: normalizedBody.consignee?.name || '', buyer_phone: normalizedBody.consignee?.phone || '',
+          customer_name: normalizedBody.consignee?.name || '', customer_phone: normalizedBody.consignee?.phone || '',
+          created_at: now, updated_at: now,
+        }
+        state.orders.unshift(order)
+        await stateStore.save(state)
+        return send({ success: true, message: 'Skylink shipment created.', shipment: orderForPanels(order), providerResponse: providerResult.data }, 201)
       }
       if (!isShipGlobalOrder(normalizedBody)) return send({ success: false, message: 'Select ShipGlobal as the courier partner for live booking.' }, 400)
       if (!shipGlobal.isConfigured()) return send({ success: false, message: 'ShipGlobal production credentials are not configured yet.' }, 503)

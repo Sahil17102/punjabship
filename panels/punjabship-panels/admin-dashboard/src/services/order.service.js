@@ -46,6 +46,16 @@ export async function saveSMECourierCredentials(credentials) {
   return response.data
 }
 
+export async function fetchSkylinkStatus() {
+  const response = await api.get('/admin/integrations/skylink/status')
+  return response.data?.data || {}
+}
+
+export async function saveSkylinkCredentials(credentials) {
+  const response = await api.post('/admin/integrations/skylink/credentials', credentials)
+  return response.data
+}
+
 export async function fetchBulkTracking(awbs = []) {
   try {
     const cleaned = awbs.map((awb) => String(awb || '').trim()).filter(Boolean)

@@ -14,8 +14,9 @@ import {
   VStack,
 } from '@chakra-ui/react'
 import { useEffect, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Link as RouterLink } from 'react-router-dom'
-import { fetchSMECourierStatus, saveSMECourierCredentials } from 'services/order.service'
+import { fetchSMECourierStatus, saveSMECourierCredentials, fetchSkylinkStatus, saveSkylinkCredentials } from 'services/order.service'
 import {
   useBookDelhiveryLtlLastMileAppointment,
   useCancelDelhiveryLtlPickupRequest,
@@ -52,9 +53,13 @@ import {
 
 const CourierCredentials = () => {
   const toast = useToast()
+  const queryClient = useQueryClient()
   const [smeStatus, setSmeStatus] = useState(null)
   const [smeCredentials, setSmeCredentials] = useState({ username: '', password: '', serviceCode: 'INTERNATIONAL PRIORITY' })
   const [smeSaving, setSmeSaving] = useState(false)
+  const [skylinkStatus, setSkylinkStatus] = useState(null)
+  const [skylinkSaving, setSkylinkSaving] = useState(false)
+  const [skylinkCredentials, setSkylinkCredentials] = useState({ email: '', password: '', rateUsername: '', ratePassword: '', customerCode: '', companyId: '3', rateOriginCode: '', productCode: 'NONDOX', invoiceTypeId: '', termsOfTrade: 'DDU', invoiceNoteCode: 'COMMERCIAL' })
   const bookDelhiveryLtlLastMileAppointment = useBookDelhiveryLtlLastMileAppointment()
   const cancelDelhiveryLtlPickupRequest = useCancelDelhiveryLtlPickupRequest()
   const cancelDelhiveryLtlShipment = useCancelDelhiveryLtlShipment()
@@ -74,6 +79,10 @@ const CourierCredentials = () => {
   const { data, isLoading, error } = useCourierCredentials()
   useEffect(() => {
     fetchSMECourierStatus().then(setSmeStatus).catch(() => setSmeStatus({ configured: false }))
+    fetchSkylinkStatus().then((status) => {
+      setSkylinkStatus(status)
+      setSkylinkCredentials((current) => ({ ...current, ...(status.settings || {}) }))
+    }).catch(() => setSkylinkStatus({ configured: false }))
   }, [])
 
   const handleSaveSMECredentials = async () => {
@@ -91,6 +100,30 @@ const CourierCredentials = () => {
       toast({ title: saveError?.response?.data?.message || 'Could not save SME Courier credentials', status: 'error' })
     } finally {
       setSmeSaving(false)
+    }
+  }
+  const handleSaveSkylinkCredentials = async () => {
+    if ((!skylinkCredentials.email.trim() || !skylinkCredentials.password) && !skylinkStatus?.configured) {
+      toast({ title: 'Enter Skylink login email and password', status: 'warning' })
+      return
+    }
+    if (!skylinkCredentials.customerCode.trim() && !skylinkStatus?.configured) {
+      toast({ title: 'Enter the Skylink customer code', status: 'warning' })
+      return
+    }
+    setSkylinkSaving(true)
+    try {
+      const response = await saveSkylinkCredentials(skylinkCredentials)
+      const status = await fetchSkylinkStatus()
+      setSkylinkStatus(status)
+      queryClient.invalidateQueries({ queryKey: ['serviceProviders'] })
+      queryClient.invalidateQueries({ queryKey: ['couriers'] })
+      setSkylinkCredentials((current) => ({ ...current, password: '', ratePassword: '', ...(status.settings || {}) }))
+      toast({ title: response?.message || 'Skylink credentials verified and saved', status: 'success' })
+    } catch (saveError) {
+      toast({ title: saveError?.response?.data?.message || 'Could not save Skylink credentials', status: 'error' })
+    } finally {
+      setSkylinkSaving(false)
     }
   }
   const loginDelhiveryLtl = useLoginDelhiveryLtl()
@@ -1328,6 +1361,77 @@ const CourierCredentials = () => {
               <Button as={RouterLink} to="/admin/pricing/b2c" variant="outline">B2C Rates</Button>
               <Button as={RouterLink} to="/admin/pricing/b2b" variant="outline">B2B Rates</Button>
             </Flex>
+          </VStack>
+        </Box>
+        <Box borderWidth="1px" borderRadius="lg" p={5} minW="320px" flex="1" maxW="520px" mb={{ base: 4, md: 0 }}>
+          <VStack spacing={3} align="stretch">
+            <Flex justify="space-between" align="center">
+              <Text fontWeight="semibold">Skylink International</Text>
+              <Badge colorScheme={skylinkStatus?.bookingReady ? 'green' : skylinkStatus?.configured ? 'orange' : 'gray'}>
+                {skylinkStatus?.bookingReady ? 'Connected' : skylinkStatus?.configured ? 'Invoice type required' : 'Setup needed'}
+              </Badge>
+            </Flex>
+            <Text fontSize="sm" color="gray.600">Live rates are requested for the order route. Credentials stay on the PunjabShip server; shipment creation runs only when a user books an order.</Text>
+            <FormControl>
+              <FormLabel>Skylink login email</FormLabel>
+              <Input type="email" autoComplete="off" value={skylinkCredentials.email} onChange={(event) => setSkylinkCredentials((current) => ({ ...current, email: event.target.value }))} placeholder={skylinkStatus?.configured ? 'Configured; enter only to change' : 'API login email'} />
+            </FormControl>
+            <FormControl>
+              <FormLabel>Password {skylinkStatus?.configured ? '(blank keeps saved password)' : ''}</FormLabel>
+              <Input type="password" autoComplete="new-password" value={skylinkCredentials.password} onChange={(event) => setSkylinkCredentials((current) => ({ ...current, password: event.target.value }))} placeholder={skylinkStatus?.configured ? 'Saved securely; never displayed' : 'API login password'} />
+            </FormControl>
+            <FormControl>
+              <FormLabel>Customer code</FormLabel>
+              <Input autoComplete="off" value={skylinkCredentials.customerCode} onChange={(event) => setSkylinkCredentials((current) => ({ ...current, customerCode: event.target.value }))} placeholder={skylinkStatus?.configured ? 'Blank keeps saved customer code' : 'Skylink customer code'} />
+            </FormControl>
+            <Flex gap={3} flexWrap="wrap">
+              <FormControl flex="1" minW="140px">
+                <FormLabel>API company ID</FormLabel>
+                <Input value={skylinkCredentials.companyId} onChange={(event) => setSkylinkCredentials((current) => ({ ...current, companyId: event.target.value }))} />
+              </FormControl>
+              <FormControl flex="1" minW="140px">
+                <FormLabel>Rate origin code (optional)</FormLabel>
+                <Input value={skylinkCredentials.rateOriginCode} onChange={(event) => setSkylinkCredentials((current) => ({ ...current, rateOriginCode: event.target.value }))} placeholder="Blank uses pickup PIN" />
+              </FormControl>
+            </Flex>
+            <Flex gap={3} flexWrap="wrap">
+              <FormControl flex="1" minW="140px">
+                <FormLabel>Product code</FormLabel>
+                <Select value={skylinkCredentials.productCode} onChange={(event) => setSkylinkCredentials((current) => ({ ...current, productCode: event.target.value }))}>
+                  <option value="NONDOX">NONDOX (parcel)</option>
+                  <option value="DOX">DOX (documents)</option>
+                </Select>
+              </FormControl>
+              <FormControl flex="1" minW="140px">
+                <FormLabel>Free-form invoice type ID</FormLabel>
+                <Input type="number" min="1" value={skylinkCredentials.invoiceTypeId} onChange={(event) => setSkylinkCredentials((current) => ({ ...current, invoiceTypeId: event.target.value }))} placeholder="Required by Skylink for NONDOX" />
+              </FormControl>
+            </Flex>
+            <Flex gap={3} flexWrap="wrap">
+              <FormControl flex="1" minW="140px">
+                <FormLabel>Terms of trade</FormLabel>
+                <Select value={skylinkCredentials.termsOfTrade} onChange={(event) => setSkylinkCredentials((current) => ({ ...current, termsOfTrade: event.target.value }))}>
+                  <option value="DDU">DDU</option><option value="DDP">DDP</option>
+                </Select>
+              </FormControl>
+              <FormControl flex="1" minW="140px">
+                <FormLabel>Invoice purpose</FormLabel>
+                <Select value={skylinkCredentials.invoiceNoteCode} onChange={(event) => setSkylinkCredentials((current) => ({ ...current, invoiceNoteCode: event.target.value }))}>
+                  <option value="COMMERCIAL">COMMERCIAL</option><option value="GIFT">GIFT</option><option value="SAMPLE">SAMPLE</option>
+                </Select>
+              </FormControl>
+            </Flex>
+            <FormControl>
+              <FormLabel>Rate API username override (optional)</FormLabel>
+              <Input autoComplete="off" value={skylinkCredentials.rateUsername} onChange={(event) => setSkylinkCredentials((current) => ({ ...current, rateUsername: event.target.value }))} placeholder="Blank uses login email" />
+            </FormControl>
+            <FormControl>
+              <FormLabel>Rate API password override (optional)</FormLabel>
+              <Input type="password" autoComplete="new-password" value={skylinkCredentials.ratePassword} onChange={(event) => setSkylinkCredentials((current) => ({ ...current, ratePassword: event.target.value }))} placeholder="Blank reuses login password" />
+            </FormControl>
+            <Text fontSize="xs" color="gray.600">Skylink’s API requires a free-form invoice type ID for itemized NONDOX bookings. Add the exact ID from your Skylink account; it is not listed in the supplied API reference.</Text>
+            {skylinkStatus?.note && <Text fontSize="xs" color="gray.600">{skylinkStatus.note}</Text>}
+            <Button colorScheme="blue" onClick={handleSaveSkylinkCredentials} isLoading={skylinkSaving}>Verify &amp; Save Skylink Credentials</Button>
           </VStack>
         </Box>
         <Box
