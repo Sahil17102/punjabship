@@ -2827,6 +2827,10 @@ http.createServer(async (req, res) => {
       const couriers = state.manualCouriers
         .filter((item) => !requestUrl.searchParams.get('businessType') || (businessType === 'b2b' ? item.supportsB2b : item.supportsB2c))
         .map((item) => ({ id: item.courierId, courierId: item.courierId, name: item.displayName, displayName: item.displayName, serviceProvider: 'manual', service_provider: 'manual', isEnabled: item.isEnabled, businessType: [item.supportsB2c && 'b2c', item.supportsB2b && 'b2b'].filter(Boolean) }))
+      if (requestUrl.searchParams.get('includeIntegrations') === 'true' && ['b2b', 'b2c'].includes(businessType)) {
+        const readiness = getSMEIntegrationReadiness()
+        couriers.push({ id: 99002, courierId: 99002, name: 'SME Courier FedEx Direct', displayName: 'SME Courier FedEx Direct', serviceProvider: 'smecourier', service_provider: 'smecourier', isEnabled: readiness.bookingReady, businessType: ['b2c', 'b2b'], isIntegration: true, isDemoRateOnly: !readiness.bookingReady, integrationConfigured: readiness.configured, integrationReady: readiness.bookingReady, integrationStatus: readiness.status, integrationNote: readiness.note })
+      }
       return send({ success: true, data: couriers })
     }
 
