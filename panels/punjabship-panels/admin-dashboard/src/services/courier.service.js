@@ -70,7 +70,8 @@ export const fetchAllCouriersList = async (filters = {}) => {
   if (filters.serviceProvider) params.serviceProvider = filters.serviceProvider
   if (filters.businessType) params.businessType = filters.businessType
 
-  const res = await api.get(`/couriers/full-list`, { params })
+  const url = filters.includeIntegrations ? '/admin/couriers/rate-card-list' : '/couriers/full-list'
+  const res = await api.get(url, { params })
   if (!res.data?.success) throw new Error('Failed to fetch couriers')
   return normalizeArrayPayload(res.data) // returns an array of courier objects
 }

@@ -214,6 +214,42 @@ const defaultB2bZoneRates = () => {
   })))
 }
 
+// Planning-only examples. These are intentionally inactive because the SME
+// account does not expose live rate quotes; confirm SME's tariff before use.
+const defaultSMEDemoRates = () => [
+  {
+    id: 'rate-smecourier-demo-b2c', plan_id: 'starter-b2c', businessType: 'b2c',
+    courier_id: 99002, courier_name: 'SME Courier FedEx Direct (DEMO)', service_provider: 'smecourier',
+    mode: 'air', min_weight: 0.5, cod_charges: 0, cod_percent: 0, other_charges: 0,
+    is_demo: true, is_active: false, rate_note: 'Illustrative INR only; not an SME quote. Confirm official rates before activation.',
+    rates: { Canada: { forward: 3200, rto: 0 }, 'United States': { forward: 3000, rto: 0 }, Europe: { forward: 3400, rto: 0 } },
+    zone_slabs: {
+      Canada: makeSlab(3200, 0, 1250, 0),
+      'United States': makeSlab(3000, 0, 1150, 0),
+      Europe: makeSlab(3400, 0, 1350, 0),
+    },
+  },
+  {
+    id: 'rate-smecourier-demo-b2b', plan_id: 'starter-b2b', businessType: 'b2b',
+    courier_id: 99002, courier_name: 'SME Courier FedEx Direct (DEMO)', service_provider: 'smecourier',
+    mode: 'air', min_weight: 2, cod_charges: 0, cod_percent: 0, other_charges: 0,
+    is_demo: true, is_active: false, rate_note: 'Illustrative INR per kg only; not an SME quote. Confirm official rates before activation.',
+    rates: {
+      Canada: { forward_per_kg: 2800, rto_per_kg: 0, min_weight: 2 },
+      'United States': { forward_per_kg: 2600, rto_per_kg: 0, min_weight: 2 },
+      Europe: { forward_per_kg: 3000, rto_per_kg: 0, min_weight: 2 },
+    },
+  },
+]
+const keepSMERateDemoOnly = (rate) => {
+  if (Number(rate.courier_id) === 99002 || String(rate.service_provider || '').toLowerCase() === 'smecourier') {
+    rate.is_demo = true
+    rate.is_active = false
+    rate.rate_note = 'Illustrative only; SME tariff is unverified. Live booking remains disabled.'
+  }
+  return rate
+}
+
 const toServiceabilityLocation = (office, index) => ({
   id: `india-post-${index + 1}`,
   pincode: office.pincode,
@@ -509,6 +545,14 @@ for (const defaultRate of [defaultB2cRate(), defaultB2bRate()]) {
         existingRate.zone_slabs[zoneName] = slabs
         stateNeedsSave = true
       }
+    }
+  }
+}
+if (smeCourier.isConfigured()) {
+  for (const demoRate of defaultSMEDemoRates()) {
+    if (!state.shippingRates.some((rate) => rate.id === demoRate.id)) {
+      state.shippingRates.push(demoRate)
+      stateNeedsSave = true
     }
   }
 }
@@ -2618,6 +2662,7 @@ http.createServer(async (req, res) => {
           }
           if (rate) Object.assign(rate, values)
           else { rate = { id: `rate-${randomUUID()}`, ...values, created_at: new Date().toISOString() }; state.shippingRates.push(rate) }
+          keepSMERateDemoOnly(rate)
           savedRows += 1
         }
       } else {
@@ -2674,6 +2719,7 @@ http.createServer(async (req, res) => {
           }
           if (rate) Object.assign(rate, values)
           else { rate = { id: `rate-${randomUUID()}`, ...values, created_at: new Date().toISOString() }; state.shippingRates.push(rate) }
+          keepSMERateDemoOnly(rate)
           savedRows += group.rows.length
         }
       }
@@ -2698,7 +2744,20 @@ http.createServer(async (req, res) => {
       let rate = state.shippingRates.find((item) => Number(item.courier_id) === courierId && String(item.plan_id) === planId && normalizeBusinessType(item.businessType) === businessType)
       if (!rate) { rate = { id: `rate-${randomUUID()}`, courier_id: courierId, plan_id: planId, businessType }; state.shippingRates.push(rate) }
       Object.assign(rate, body, { courier_id: courierId, plan_id: planId, businessType, updated_at: new Date().toISOString() })
+      keepSMERateDemoOnly(rate)
       save(); return send({ success: true, data: rate, message: 'Shipping rate saved.' })
+    }
+    if (path === '/api/admin/couriers/rate-card-list' && req.method === 'GET') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const businessType = normalizeBusinessType(requestUrl.searchParams.get('businessType') || '')
+      const couriers = state.manualCouriers
+        .filter((item) => !businessType || (businessType === 'b2b' ? item.supportsB2b : item.supportsB2c))
+        .map((item) => ({ id: item.courierId, courierId: item.courierId, name: item.displayName, displayName: item.displayName, serviceProvider: 'manual', service_provider: 'manual', isEnabled: item.isEnabled, businessType: [item.supportsB2c && 'b2c', item.supportsB2b && 'b2b'].filter(Boolean) }))
+      if (smeCourier.isConfigured() && (!businessType || ['b2b', 'b2c'].includes(businessType))) {
+        couriers.push({ id: 99002, courierId: 99002, name: 'SME Courier FedEx Direct (DEMO)', displayName: 'SME Courier FedEx Direct (DEMO)', serviceProvider: 'smecourier', service_provider: 'smecourier', mode: 'air', isEnabled: true, businessType: ['b2c', 'b2b'], isDemoRateOnly: true })
+      }
+      const provider = String(requestUrl.searchParams.get('serviceProvider') || '').trim().toLowerCase()
+      return send({ success: true, data: provider ? couriers.filter((courier) => String(courier.serviceProvider).toLowerCase() === provider) : couriers })
     }
     if (path === '/api/couriers/full-list' || path === '/api/admin/couriers/list' || path === '/api/couriers/list') {
       const businessType = normalizeBusinessType(requestUrl.searchParams.get('businessType') || '')
@@ -2893,12 +2952,14 @@ http.createServer(async (req, res) => {
       // readiness remains visible to administrators through the status route.
       const includeShipGlobal = configured && normalizeBusinessType(body.shipment_type) === 'b2c' && path !== '/api/couriers/b2b-rate-quotes'
       const smeConfigured = smeCourier.isConfigured()
+      const smeRatesConfirmed = state.shippingRates.some((rate) => Number(rate.courier_id) === 99002 && !rate.is_demo && rate.is_active !== false)
       const smeOption = {
         id: 99002, courier_id: 99002, name: 'SME Courier FedEx Direct', displayName: 'SME Courier FedEx Direct',
         integration_type: 'smecourier', courier_option_key: 'smecourier-fedex-direct', service: smeCourier.serviceCode,
-        mode: 'air', rate: 0, courier_cost_estimate: null, booking_available: smeConfigured, can_book: smeConfigured,
-        booking_blocked_reason: smeConfigured ? null : 'SME Courier credentials, service and consignor document must be configured by the administrator.',
-        provider_serviceability: { provider: 'SME Courier FedEx Direct', service: smeCourier.serviceCode, booking_available: smeConfigured, can_book: smeConfigured },
+        mode: 'air', rate: null, courier_cost_estimate: null, booking_available: smeConfigured && smeRatesConfirmed, can_book: smeConfigured && smeRatesConfirmed,
+        booking_blocked_reason: !smeConfigured ? 'SME Courier credentials must be configured by the administrator.' : smeRatesConfirmed ? null : 'Demo rates are inactive. Confirm SME Courier tariff and activate a non-demo rate before booking.',
+        rate_status: smeRatesConfirmed ? 'confirmed' : 'demo',
+        provider_serviceability: { provider: 'SME Courier FedEx Direct', service: smeCourier.serviceCode, booking_available: smeConfigured && smeRatesConfirmed, can_book: smeConfigured && smeRatesConfirmed, rate_status: smeRatesConfirmed ? 'confirmed' : 'demo' },
       }
       const includeSME = smeConfigured && normalizeBusinessType(body.shipment_type) === 'b2c' && path !== '/api/couriers/b2b-rate-quotes'
       return send({ success: true, data: [...manualQuotes, ...(includeShipGlobal ? [courier] : []), ...(includeSME ? [smeOption] : [])] })

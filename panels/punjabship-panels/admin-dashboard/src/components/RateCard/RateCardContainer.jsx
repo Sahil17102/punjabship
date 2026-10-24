@@ -33,7 +33,7 @@ import { fetchAllCouriersList } from 'services/courier.service'
 import { PlansService } from 'services/plan.service'
 
 const normalizeProvider = (value) => String(value || '').trim().toLowerCase()
-const RATE_CARD_PROVIDER_ALLOWLIST = new Set(['delhivery', 'manual', 'velocity'])
+const RATE_CARD_PROVIDER_ALLOWLIST = new Set(['delhivery', 'manual', 'velocity', 'smecourier'])
 const isCourierEnabled = (courier = {}) => courier.isEnabled !== false && courier.is_enabled !== false
 const isRateCardAllowedCourier = (courier = {}) =>
   isCourierEnabled(courier) &&
@@ -193,7 +193,7 @@ export const RateCardContainer = ({ forceBusinessType = null, embedded = false }
 
   const { data: courierList } = useQuery({
     queryKey: ['all-couriers', selectedBusinessType],
-    queryFn: () => fetchAllCouriersList({ businessType: selectedBusinessType }),
+    queryFn: () => fetchAllCouriersList({ businessType: selectedBusinessType, includeIntegrations: true }),
   })
 
   const { data: plans = [] } = useQuery({
@@ -296,6 +296,11 @@ export const RateCardContainer = ({ forceBusinessType = null, embedded = false }
       gap={embedded ? 3 : 4}
     >
       {/* Business Type Tabs - Only show if not forced */}
+      {rateCardCouriers.some((courier) => normalizeProvider(courier.serviceProvider || courier.service_provider) === 'smecourier') && (
+        <Box bg="orange.50" border="1px solid" borderColor="orange.200" color="orange.900" borderRadius="md" p={3} fontSize="sm">
+          SME Courier B2C and B2B rates here are illustrative demo values only, not carrier quotes. They stay inactive, and SME shipment booking stays blocked until the official tariff is confirmed.
+        </Box>
+      )}
       {!forceBusinessType && (
         <Tabs
           variant="solid-rounded"
