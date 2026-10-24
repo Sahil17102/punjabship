@@ -175,8 +175,11 @@ export const useAvailableCouriers = (params: UseAvailableCouriersParams) => {
         height,
       }),
     enabled: canFetchAvailableCouriers,
-    staleTime: 1000 * 60 * 5,
-    refetchOnMount: isShipmentCourierSelection ? false : true,
+    // Skylink booking quotes are short-lived and held in the API process memory.
+    // Always fetch a fresh quote when the shipment courier step is opened.
+    staleTime: isShipmentCourierSelection ? 0 : 1000 * 60 * 5,
+    refetchOnMount: true,
+    refetchOnWindowFocus: isShipmentCourierSelection,
     retry: isShipmentCourierSelection ? 0 : 1,
   })
 }

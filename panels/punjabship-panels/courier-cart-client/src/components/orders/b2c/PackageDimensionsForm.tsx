@@ -68,7 +68,19 @@ const PackageDimensionsForm = () => {
               defaultValue={0}
               rules={{
                 required: `${key.charAt(0).toUpperCase() + key.slice(1)} is required`,
-                min: { value: 0.01, message: 'Cannot be zero or negative' },
+                min: {
+                  value: key === 'weight' ? 1 : 0.01,
+                  message:
+                    key === 'weight'
+                      ? 'Enter the weight in whole grams (minimum 1 g)'
+                      : 'Cannot be zero or negative',
+                },
+                ...(key === 'weight'
+                  ? {
+                      validate: (value: number) =>
+                        Number.isInteger(Number(value)) || 'Enter whole grams, for example 500 for 0.5 kg',
+                    }
+                  : {}),
               }}
               render={({ field, fieldState }) => (
                 <CustomInput
@@ -79,10 +91,15 @@ const PackageDimensionsForm = () => {
                   }
                   type="number"
                   required
+                  placeholder={key === 'weight' ? 'e.g. 500 = 0.5 kg' : ''}
+                  slotProps={key === 'weight' ? { htmlInput: { min: 1, step: 1 } } : undefined}
                   {...field}
                   value={field.value === 0 ? '' : field.value}
                   error={!!fieldState.error}
-                  helperText={fieldState.error?.message}
+                  helperText={
+                    fieldState.error?.message ||
+                    (key === 'weight' ? 'Enter packed weight in whole grams (500 = 0.5 kg)' : undefined)
+                  }
                   topMargin={false}
                   dense
                 />

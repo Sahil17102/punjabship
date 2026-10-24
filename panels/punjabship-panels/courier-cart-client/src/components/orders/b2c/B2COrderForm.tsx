@@ -77,6 +77,9 @@ export type B2CFormData = {
   courierCod?: number
   otherCharges?: number
   forwardCharges?: number
+  walletDebitAmount?: number
+  gstPercent?: number
+  gstAmount?: number
   courierCost?: number | null // Estimated courier cost from serviceability (what platform pays courier)
 
   rtoLocationPincode?: string
@@ -484,6 +487,30 @@ export default function B2COrderFormSteps({ onClose }: { onClose?: () => void })
           if (location.pathname === '/orders/create') {
             navigate('/orders/list')
           }
+        },
+        onError: (error: any) => {
+          const message = String(
+            error?.response?.data?.message || error?.response?.data?.error || error?.message || '',
+          )
+          if (!message.includes('Skylink quote expired')) return
+
+          // Return to shipment details. Re-entering courier selection fetches a
+          // fresh live quote before the seller can select and book again.
+          setValue('courierPartner', '')
+          setValue('courierPartnerId', '')
+          setValue('courierOptionKey', '')
+          setValue('integrationType', undefined)
+          setValue('courierCost', null)
+          setValue('forwardCharges', 0)
+          setValue('courierCod', 0)
+          setValue('otherCharges', 0)
+          setValue('walletDebitAmount', 0)
+          setValue('gstPercent', 0)
+          setValue('gstAmount', 0)
+          setValue('chargeableWeight', null)
+          setValue('volumetricWeight', null)
+          setValue('slabs', null)
+          setCurrentStep(0)
         },
       })
     } catch (error) {

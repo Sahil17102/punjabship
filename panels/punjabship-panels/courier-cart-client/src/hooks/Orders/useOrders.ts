@@ -27,10 +27,13 @@ export const useCreateShipment = (onClose?: () => void) => {
     // 🔹 Error handling
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     onError: (error: any) => {
-      const message =
+      const rawMessage =
         error?.response?.data?.message ||
         error?.message ||
         'Failed to create shipment. Please try again.'
+      const message = String(rawMessage).includes('Skylink quote expired')
+        ? 'This courier quote expired before booking. No shipment was created. Refresh the rates and select a courier again.'
+        : rawMessage
       toast.open({ message, severity: 'error' })
       console.error('Failed to create shipment:', error.response?.data || error.message)
     },
