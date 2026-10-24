@@ -102,7 +102,7 @@ export const createSMECourierClient = ({
   fetchImpl = fetch,
 } = {}) => {
   const settings = { username: text(username), password: text(password), baseUrl: text(baseUrl).replace(/\/$/, ''), serviceCode: text(serviceCode), shipmentType: text(shipmentType), docType: text(docType), docValue: text(docValue), fedexAccountId: text(fedexAccountId), packageId: text(packageId) }
-  const configured = Boolean(settings.username && settings.password && settings.serviceCode && settings.docValue)
+  const configured = Boolean(settings.username && settings.password && settings.serviceCode)
   let token = ''
   let refreshToken = ''
   let tokenExpiresAt = 0
