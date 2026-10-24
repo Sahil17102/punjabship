@@ -24,11 +24,15 @@ export const mapPunjabShipOrderToSME = (order, defaults = {}) => {
   const consignee = order?.consignee || {}
   const seller = order?.__seller || {}
   const items = Array.isArray(order?.order_items) ? order.order_items : []
+  const requestedShipmentType = [order?.provider_shipment_type, order?.ShipmentType, order?.shipmentType, order?.shipment_type]
+    .map(text)
+    .find((value) => /^dox$/i.test(value) || /^ndox$/i.test(value))
   const totalItemWeight = Number(order.package_weight || 0)
   const itemTotal = items.reduce((sum, item) => sum + Number(item.price || 0) * Number(item.qty || item.quantity || 1), 0)
   return {
     Username: defaults.username,
-    ShipmentType: first(order.shipment_type, defaults.shipmentType, 'NDox'),
+    // PunjabShip's `b2c`/`b2b` order type is not SME's Dox/NDox shipment type.
+    ShipmentType: requestedShipmentType ? (/^dox$/i.test(requestedShipmentType) ? 'Dox' : 'NDox') : first(defaults.shipmentType, 'NDox'),
     // `order.service` can be a display label supplied by the courier picker.
     // Shipment_Create requires the mapped SME service name configured for
     // this account, so do not let that UI label override the provider code.
