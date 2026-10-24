@@ -150,8 +150,9 @@ export const createSkylinkClient = ({
     if (!configured()) return []
     const originCode = first(settings.rateOriginCode, order?.origin, order?.pickupPincode, order?.pickup_pincode)
     const destinationCode = first(order?.deliveryCountryCode, order?.destinationCountryCode, order?.destination_country_code, order?.consignee?.country_code, 'IN').toUpperCase()
-    // PunjabShip's order form and create-order payload both express weight in kg.
-    const weightKg = amount(order?.weight ?? order?.package_weight)
+    // PunjabShip's B2C form and create-order payload express package weight in grams;
+    // Skylink's customer_rate_cals endpoint expects kilograms.
+    const weightKg = amount(order?.weight ?? order?.package_weight) / 1000
     const pieces = Math.max(1, Math.floor(amount(order?.pcs || order?.pieces) || 1))
     if (!originCode || !destinationCode || !validNumber(weightKg)) return []
     const { date } = indiaDateTime()
@@ -199,7 +200,7 @@ export const createSkylinkClient = ({
     if (!quote || quote.expiresAt <= Date.now()) throw Object.assign(new Error('Skylink quote expired. Refresh courier rates and select a service again.'), { statusCode: 409 })
     const originCode = first(settings.rateOriginCode, order?.pickup?.pincode, order?.origin)
     const destinationCode = first(order?.consignee?.country_code, order?.country_code, 'IN').toUpperCase()
-    const weightKg = amount(order?.package_weight)
+    const weightKg = amount(order?.package_weight ?? order?.weight) / 1000
     if (quote.order.originCode !== originCode || quote.order.destinationCode !== destinationCode || Math.abs(quote.order.weightKg - weightKg) > 0.0001) {
       throw Object.assign(new Error('Shipment details changed after the Skylink quote. Refresh rates before booking.'), { statusCode: 409 })
     }
