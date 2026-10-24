@@ -48,7 +48,7 @@ const ServiceProviders = () => {
         Service Providers
       </Text>
       <Text fontSize="sm" color="gray.500">
-        View courier connections and booking readiness. SME Courier requires a confirmed B2C tariff before live booking is enabled.
+        View courier connections and booking readiness. SME Courier B2C booking uses the rate card configured in B2C Pricing.
       </Text>
       <Table variant="simple">
         <Thead>

@@ -298,7 +298,7 @@ export const RateCardContainer = ({ forceBusinessType = null, embedded = false }
       {/* Business Type Tabs - Only show if not forced */}
       {rateCardCouriers.some((courier) => normalizeProvider(courier.serviceProvider || courier.service_provider) === 'smecourier') && (
         <Box bg="orange.50" border="1px solid" borderColor="orange.200" color="orange.900" borderRadius="md" p={3} fontSize="sm">
-          SME rates are editable PunjabShip-set temporary rates for the initial shipment check, not carrier quotes. Only B2C rates can enable live SME booking; update rates after verification.
+          SME shipment pricing is managed here. B2C rates are used for live SME bookings; B2B rates are available in the B2B rate matrix.
         </Box>
       )}
       {!forceBusinessType && (

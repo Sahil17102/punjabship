@@ -14,6 +14,8 @@ import {
   VStack,
 } from '@chakra-ui/react'
 import { useEffect, useState } from 'react'
+import { Link as RouterLink } from 'react-router-dom'
+import { fetchSMECourierStatus, saveSMECourierCredentials } from 'services/order.service'
 import {
   useBookDelhiveryLtlLastMileAppointment,
   useCancelDelhiveryLtlPickupRequest,
@@ -50,6 +52,9 @@ import {
 
 const CourierCredentials = () => {
   const toast = useToast()
+  const [smeStatus, setSmeStatus] = useState(null)
+  const [smeCredentials, setSmeCredentials] = useState({ username: '', password: '', serviceCode: 'INTERNATIONAL PRIORITY' })
+  const [smeSaving, setSmeSaving] = useState(false)
   const bookDelhiveryLtlLastMileAppointment = useBookDelhiveryLtlLastMileAppointment()
   const cancelDelhiveryLtlPickupRequest = useCancelDelhiveryLtlPickupRequest()
   const cancelDelhiveryLtlShipment = useCancelDelhiveryLtlShipment()
@@ -67,6 +72,27 @@ const CourierCredentials = () => {
   const getDelhiveryLtlExpectedTat = useGetDelhiveryLtlExpectedTat()
   const trackDelhiveryLtlShipment = useTrackDelhiveryLtlShipment()
   const { data, isLoading, error } = useCourierCredentials()
+  useEffect(() => {
+    fetchSMECourierStatus().then(setSmeStatus).catch(() => setSmeStatus({ configured: false }))
+  }, [])
+
+  const handleSaveSMECredentials = async () => {
+    if (!smeCredentials.username.trim() || (!smeCredentials.password && !smeStatus?.configured)) {
+      toast({ title: 'Enter SME Courier username and password', status: 'warning' })
+      return
+    }
+    setSmeSaving(true)
+    try {
+      const response = await saveSMECourierCredentials(smeCredentials)
+      setSmeStatus(response?.data || { ...smeStatus, configured: true, passwordConfigured: true, service: smeCredentials.serviceCode })
+      setSmeCredentials((current) => ({ ...current, password: '' }))
+      toast({ title: 'SME Courier credentials verified and saved', status: 'success' })
+    } catch (saveError) {
+      toast({ title: saveError?.response?.data?.message || 'Could not save SME Courier credentials', status: 'error' })
+    } finally {
+      setSmeSaving(false)
+    }
+  }
   const loginDelhiveryLtl = useLoginDelhiveryLtl()
   const logoutDelhiveryLtl = useLogoutDelhiveryLtl()
   const testDelhivery = useTestDelhiveryCredentials()
@@ -1276,6 +1302,34 @@ const CourierCredentials = () => {
       </Text>
 
       <Flex gap={4} flexWrap="wrap">
+        <Box borderWidth="1px" borderRadius="lg" p={5} minW="320px" flex="1" maxW="520px" mb={{ base: 4, md: 0 }}>
+          <VStack spacing={4} align="stretch">
+            <Flex justify="space-between" align="center">
+              <Text fontWeight="semibold">SME Courier • FedEx Direct</Text>
+              <Badge colorScheme={smeStatus?.configured ? 'green' : 'orange'}>
+                {smeStatus?.configured ? (smeStatus.bookingReady ? 'B2C booking ready' : 'Connected') : 'Missing credentials'}
+              </Badge>
+            </Flex>
+            <Text fontSize="sm" color="gray.600">SME API login and service settings used for direct international shipment booking.</Text>
+            <FormControl>
+              <FormLabel>SME username</FormLabel>
+              <Input autoComplete="off" value={smeCredentials.username} onChange={(event) => setSmeCredentials((current) => ({ ...current, username: event.target.value }))} placeholder={smeStatus?.configured ? 'Enter username to update' : 'Enter SME Courier username'} />
+            </FormControl>
+            <FormControl>
+              <FormLabel>Password {smeStatus?.configured ? '(leave blank to keep saved password)' : ''}</FormLabel>
+              <Input type="password" autoComplete="new-password" value={smeCredentials.password} onChange={(event) => setSmeCredentials((current) => ({ ...current, password: event.target.value }))} placeholder={smeStatus?.configured ? 'Saved securely; never displayed' : 'Enter SME Courier password'} />
+            </FormControl>
+            <FormControl>
+              <FormLabel>Service code</FormLabel>
+              <Input value={smeCredentials.serviceCode} onChange={(event) => setSmeCredentials((current) => ({ ...current, serviceCode: event.target.value }))} />
+            </FormControl>
+            <Flex gap={3} flexWrap="wrap">
+              <Button colorScheme="blue" onClick={handleSaveSMECredentials} isLoading={smeSaving}>Verify &amp; Save SME Credentials</Button>
+              <Button as={RouterLink} to="/admin/pricing/b2c" variant="outline">B2C Rates</Button>
+              <Button as={RouterLink} to="/admin/pricing/b2b" variant="outline">B2B Rates</Button>
+            </Flex>
+          </VStack>
+        </Box>
         <Box
           borderWidth="1px"
           borderRadius="lg"

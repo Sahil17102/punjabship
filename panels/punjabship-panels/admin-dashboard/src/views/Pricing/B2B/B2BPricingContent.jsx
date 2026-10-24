@@ -130,7 +130,7 @@ const B2BPricingContent = () => {
           <Divider mt={4} />
           {String(selectedCourier?.serviceProvider || selectedCourier?.service_provider || '').toLowerCase() === 'smecourier' && (
             <Text mt={3} fontSize="sm" color="orange.700" role="note">
-              SME B2B rates are temporary PunjabShip-set INR/kg values, editable in this rate matrix. They are not carrier quotes; direct SME B2B booking is not enabled.
+              SME B2B rates are editable INR/kg values in this matrix. Direct SME B2B booking is not enabled.
             </Text>
           )}
         </Box>
