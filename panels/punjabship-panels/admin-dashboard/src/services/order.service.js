@@ -56,6 +56,16 @@ export async function saveSkylinkCredentials(credentials) {
   return response.data
 }
 
+export async function fetchFlightGoStatus() {
+  const response = await api.get('/admin/integrations/flightgo/status')
+  return response.data?.data || response.data
+}
+
+export async function saveFlightGoCredentials(credentials) {
+  const response = await api.post('/admin/integrations/flightgo/credentials', credentials)
+  return response.data
+}
+
 export async function fetchBulkTracking(awbs = []) {
   try {
     const cleaned = awbs.map((awb) => String(awb || '').trim()).filter(Boolean)

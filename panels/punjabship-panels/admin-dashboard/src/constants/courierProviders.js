@@ -6,5 +6,6 @@ export const COURIER_PROVIDER_OPTIONS = [
 export const COURIER_FILTER_PROVIDER_OPTIONS = [
   ...COURIER_PROVIDER_OPTIONS,
   { value: 'skylink', label: 'Skylink International' },
+  { value: 'flightgo', label: 'FlightGo Express' },
   { value: 'smecourier', label: 'SME Courier • FedEx Direct' },
 ]

@@ -108,6 +108,7 @@ export type B2CFormData = {
     | 'shipglobal'
     | 'smecourier'
     | 'skylink'
+    | 'flightgo'
   pickupAddress?: string
   pickupGSTNumber?: string
   pickupLocationPOCName?: string

@@ -16,7 +16,7 @@ import {
 import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Link as RouterLink } from 'react-router-dom'
-import { fetchSMECourierStatus, saveSMECourierCredentials, fetchSkylinkStatus, saveSkylinkCredentials } from 'services/order.service'
+import { fetchSMECourierStatus, saveSMECourierCredentials, fetchSkylinkStatus, saveSkylinkCredentials, fetchFlightGoStatus, saveFlightGoCredentials } from 'services/order.service'
 import {
   useBookDelhiveryLtlLastMileAppointment,
   useCancelDelhiveryLtlPickupRequest,
@@ -60,6 +60,9 @@ const CourierCredentials = () => {
   const [skylinkStatus, setSkylinkStatus] = useState(null)
   const [skylinkSaving, setSkylinkSaving] = useState(false)
   const [skylinkCredentials, setSkylinkCredentials] = useState({ email: '', password: '', rateUsername: '', ratePassword: '', customerCode: '', companyId: '3', rateOriginCode: '', productCode: 'NONDOX', invoiceTypeId: '1', termsOfTrade: 'DDU', invoiceNoteCode: 'COMMERCIAL' })
+  const [flightGoStatus, setFlightGoStatus] = useState(null)
+  const [flightGoSaving, setFlightGoSaving] = useState(false)
+  const [flightGoCredentials, setFlightGoCredentials] = useState({ username: '', password: '', apiKey: '', packageCode: 'NDX', environment: 'test' })
   const bookDelhiveryLtlLastMileAppointment = useBookDelhiveryLtlLastMileAppointment()
   const cancelDelhiveryLtlPickupRequest = useCancelDelhiveryLtlPickupRequest()
   const cancelDelhiveryLtlShipment = useCancelDelhiveryLtlShipment()
@@ -83,6 +86,10 @@ const CourierCredentials = () => {
       setSkylinkStatus(status)
       setSkylinkCredentials((current) => ({ ...current, ...(status.settings || {}) }))
     }).catch(() => setSkylinkStatus({ configured: false }))
+    fetchFlightGoStatus().then((status) => {
+      setFlightGoStatus(status)
+      setFlightGoCredentials((current) => ({ ...current, ...(status.settings || {}) }))
+    }).catch(() => setFlightGoStatus({ configured: false }))
   }, [])
 
   const handleSaveSMECredentials = async () => {
@@ -125,6 +132,23 @@ const CourierCredentials = () => {
     } finally {
       setSkylinkSaving(false)
     }
+  }
+  const handleSaveFlightGoCredentials = async () => {
+    if ((!flightGoCredentials.username.trim() || !flightGoCredentials.password || !flightGoCredentials.apiKey.trim()) && !flightGoStatus?.configured) {
+      toast({ title: 'Enter FlightGo username, password and API access key', status: 'warning' }); return
+    }
+    setFlightGoSaving(true)
+    try {
+      const response = await saveFlightGoCredentials(flightGoCredentials)
+      const status = await fetchFlightGoStatus()
+      setFlightGoStatus(status)
+      queryClient.invalidateQueries({ queryKey: ['serviceProviders'] })
+      queryClient.invalidateQueries({ queryKey: ['couriers'] })
+      setFlightGoCredentials((current) => ({ ...current, password: '', apiKey: '', ...(status.settings || {}) }))
+      toast({ title: response?.message || 'FlightGo credentials verified and saved', status: 'success' })
+    } catch (saveError) {
+      toast({ title: saveError?.response?.data?.message || 'Could not save FlightGo credentials', status: 'error' })
+    } finally { setFlightGoSaving(false) }
   }
   const loginDelhiveryLtl = useLoginDelhiveryLtl()
   const logoutDelhiveryLtl = useLogoutDelhiveryLtl()
@@ -1435,6 +1459,26 @@ const CourierCredentials = () => {
             <Text fontSize="xs" color="gray.600">Skylink’s API requires a free-form invoice type ID for itemized NONDOX bookings. Add the exact ID from your Skylink account; it is not listed in the supplied API reference.</Text>
             {skylinkStatus?.note && <Text fontSize="xs" color="gray.600">{skylinkStatus.note}</Text>}
             <Button colorScheme="blue" onClick={handleSaveSkylinkCredentials} isLoading={skylinkSaving}>Verify &amp; Save Skylink Credentials</Button>
+          </VStack>
+        </Box>
+        <Box borderWidth="1px" borderRadius="lg" p={5} minW="320px" flex="1" maxW="520px" mb={{ base: 4, md: 0 }}>
+          <VStack spacing={3} align="stretch">
+            <Flex justify="space-between" align="center">
+              <Text fontWeight="semibold">FlightGo Express</Text>
+              <Badge colorScheme={flightGoStatus?.configured ? flightGoStatus?.environment === 'production' ? 'green' : 'orange' : 'gray'}>
+                {flightGoStatus?.status || 'Setup needed'}
+              </Badge>
+            </Flex>
+            <Text fontSize="sm" color="gray.600">Live international rates and labels use FlightGo's API. Secrets stay on the PunjabShip server.</Text>
+            <FormControl><FormLabel>API username</FormLabel><Input autoComplete="off" value={flightGoCredentials.username} onChange={(event) => setFlightGoCredentials((current) => ({ ...current, username: event.target.value }))} placeholder={flightGoStatus?.configured ? 'Configured; enter only to change' : 'FlightGo API username'} /></FormControl>
+            <FormControl><FormLabel>Password {flightGoStatus?.configured ? '(blank keeps saved password)' : ''}</FormLabel><Input type="password" autoComplete="new-password" value={flightGoCredentials.password} onChange={(event) => setFlightGoCredentials((current) => ({ ...current, password: event.target.value }))} placeholder={flightGoStatus?.configured ? 'Saved securely; never displayed' : 'FlightGo API password'} /></FormControl>
+            <FormControl><FormLabel>API access key {flightGoStatus?.configured ? '(blank keeps saved key)' : ''}</FormLabel><Input type="password" autoComplete="new-password" value={flightGoCredentials.apiKey} onChange={(event) => setFlightGoCredentials((current) => ({ ...current, apiKey: event.target.value }))} placeholder={flightGoStatus?.configured ? 'Saved securely; never displayed' : 'FlightGo API access key'} /></FormControl>
+            <Flex gap={3} flexWrap="wrap">
+              <FormControl flex="1"><FormLabel>Package type</FormLabel><Select value={flightGoCredentials.packageCode} onChange={(event) => setFlightGoCredentials((current) => ({ ...current, packageCode: event.target.value }))}><option value="NDX">NDX (parcel)</option><option value="DOC">DOC (documents)</option></Select></FormControl>
+              <FormControl flex="1"><FormLabel>Environment</FormLabel><Select value={flightGoCredentials.environment} onChange={(event) => setFlightGoCredentials((current) => ({ ...current, environment: event.target.value }))}><option value="test">Test</option><option value="production">Production</option></Select></FormControl>
+            </Flex>
+            {flightGoStatus?.note && <Text fontSize="xs" color="gray.600">{flightGoStatus.note}</Text>}
+            <Flex gap={3} flexWrap="wrap"><Button colorScheme="blue" onClick={handleSaveFlightGoCredentials} isLoading={flightGoSaving}>Verify &amp; Save FlightGo Credentials</Button><Button as={RouterLink} to="/admin/pricing/b2c" variant="outline">B2C Rates</Button><Button as={RouterLink} to="/admin/pricing/b2b" variant="outline">B2B Rates</Button></Flex>
           </VStack>
         </Box>
         <Box

@@ -137,6 +137,10 @@ export interface B2COrder {
     | 'punjabship'
     | 'amazon'
     | 'indiapost'
+    | 'shipglobal'
+    | 'smecourier'
+    | 'skylink'
+    | 'flightgo'
   pincode: string
 
   // Product info
