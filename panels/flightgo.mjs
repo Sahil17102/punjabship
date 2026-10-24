@@ -15,15 +15,26 @@ const indiaDate = (value = new Date()) => {
   return `${part('day')}-${part('month')}-${part('year')}`
 }
 
-try {
-  const config = readFileSync(resolve(process.cwd(), '../shared/flightgo.env'), 'utf8')
-  for (const line of config.split(/\r?\n/)) {
-    const match = line.match(/^\s*(FLIGHTGO_[A-Z0-9_]+)\s*=\s*(.*?)\s*$/)
-    if (!match || process.env[match[1]]) continue
-    process.env[match[1]] = match[2].replace(/^(?:"(.*)"|'(.*)')$/, (_, a, b) => a ?? b)
+const flightGoConfigCandidates = [...new Set([
+  process.env.PUNJABSHIP_SHARED_DIR ? resolve(process.env.PUNJABSHIP_SHARED_DIR, 'flightgo.env') : '',
+  resolve(process.cwd(), '../shared/flightgo.env'),
+  resolve(process.cwd(), '../../../shared/flightgo.env'),
+  '/var/www/punjabship/shared/flightgo.env',
+].filter(Boolean))]
+let flightGoConfigPath = flightGoConfigCandidates[0]
+for (const candidate of flightGoConfigCandidates) {
+  try {
+    const config = readFileSync(candidate, 'utf8')
+    flightGoConfigPath = candidate
+    for (const line of config.split(/\r?\n/)) {
+      const match = line.match(/^\s*(FLIGHTGO_[A-Z0-9_]+)\s*=\s*(.*?)\s*$/)
+      if (!match || process.env[match[1]]) continue
+      process.env[match[1]] = match[2].replace(/^(?:"(.*)"|'(.*)')$/, (_, a, b) => a ?? b)
+    }
+    break
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error
   }
-} catch (error) {
-  if (error.code !== 'ENOENT') throw error
 }
 
 export const validateFlightGoOrder = (order = {}) => {
@@ -90,7 +101,7 @@ export const createFlightGoClient = ({
     return responseData(response)
   }
   const save = () => {
-    const filePath = resolve(process.cwd(), '../shared/flightgo.env')
+    const filePath = flightGoConfigPath
     mkdirSync(dirname(filePath), { recursive: true })
     const values = { FLIGHTGO_USERNAME: settings.username, FLIGHTGO_PASSWORD: settings.password, FLIGHTGO_API_KEY: settings.apiKey, FLIGHTGO_PACKAGE_CODE: settings.packageCode, FLIGHTGO_ENVIRONMENT: settings.environment }
     const tempPath = `${filePath}.tmp-${process.pid}`
