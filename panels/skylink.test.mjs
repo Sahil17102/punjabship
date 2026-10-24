@@ -158,6 +158,8 @@ test('sends invoice type 1 and all required NONDOX invoice item fields in the bo
   assert.equal(payload.free_form_note_master_code, 'COMMERCIAL')
   assert.equal(payload.consignee_address_line_1, '1 Main St')
   assert.equal(payload.consignee_address_line_2, 'Unit 4')
+  assert.equal(payload.consignee_address1, '1 Main St')
+  assert.equal(payload.consignee_address2, 'Unit 4')
   assert.deepEqual(Object.keys(item).sort(), requiredItemFields.sort())
   assert.equal(item.total, '1000.00')
   assert.equal(item.hscode, '62032200')

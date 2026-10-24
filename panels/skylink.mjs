@@ -256,6 +256,10 @@ export const createSkylinkClient = ({
       shipper_name: text(pickup.name || pickup.warehouse_name), shipper_company_name: text(pickup.warehouse_name || seller.company_name),
       shipper_contact_no: text(pickup.phone), shipper_email: text(seller.email), shipper_address_line_1: text(pickup.address),
       shipper_address_line_2: text(pickup.address_2), shipper_address_line_3: text(pickup.landmark),
+      // Skylink's booking UI and API validator use the compact address1/address2
+      // field names, while some API accounts accept the address_line_* aliases.
+      // Send both forms so address line 2 is not discarded by either contract.
+      shipper_address1: text(pickup.address), shipper_address2: text(pickup.address_2), shipper_address3: text(pickup.landmark),
       shipper_city: text(pickup.city), shipper_state: text(pickup.state), shipper_country: text(pickup.country_code || 'IN').toUpperCase(),
       shipper_zip_code: text(pickup.pincode), shipper_gstin_type: text(pickup.gstin_type || 'GSTIN (Normal)'),
       shipper_gstin_no: text(pickup.gst_number || seller.gstin || seller.gstNumber),
@@ -263,6 +267,8 @@ export const createSkylinkClient = ({
       consignee_contact_no: text(consignee.phone), consignee_email: text(consignee.email),
       consignee_address_line_1: text(consignee.address_line_1 || consignee.address),
       consignee_address_line_2: text(consignee.address_line_2 || consignee.address_2), consignee_address_line_3: text(consignee.landmark),
+      consignee_address1: text(consignee.address_line_1 || consignee.address),
+      consignee_address2: text(consignee.address_line_2 || consignee.address_2), consignee_address3: text(consignee.landmark),
       consignee_city: text(consignee.city), consignee_state: text(consignee.state),
       consignee_country: text(consignee.country_code || order.country_code).toUpperCase(), consignee_zip_code: text(consignee.pincode),
       ...(consignee.gstin ? { consignee_gstin_type: text(consignee.gstin_type || 'GSTIN (Normal)'), consignee_gstin_no: text(consignee.gstin) } : {}),
