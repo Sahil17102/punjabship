@@ -176,13 +176,16 @@ export const createSkylinkClient = ({
     return data.data.flatMap((rate) => {
       const serviceCode = text(rate?.internal_api_service_code || rate?.code)
       if (!serviceCode || !validNumber(rate?.total ?? rate?.rate)) return []
-      const freight = amount(rate.sub_total ?? rate.rate)
+      const freight = amount(rate.rate ?? rate.sub_total)
       const otherCharges = amount(rate.other_charges) + amount(rate.fsc)
       const codCharges = amount(rate.cod_charges)
+      const subtotal = amount(rate.sub_total ?? (freight + otherCharges + codCharges))
       const total = amount(rate.total ?? rate.rate)
-      const gstAmount = Math.max(0, total - freight - codCharges)
-      const expectedTotal = Number((freight + otherCharges + codCharges + gstAmount).toFixed(2))
-      const priceBreakdownMatches = Math.abs(expectedTotal - total) <= 0.02
+      const reportedTax = amount(rate.igst) + amount(rate.cgst) + amount(rate.sgst)
+      const gstAmount = reportedTax > 0 ? reportedTax : Math.max(0, total - subtotal)
+      const expectedSubtotal = Number((freight + otherCharges + codCharges).toFixed(2))
+      const expectedTotal = Number((subtotal + gstAmount).toFixed(2))
+      const priceBreakdownMatches = Math.abs(expectedSubtotal - subtotal) <= 0.02 && Math.abs(expectedTotal - total) <= 0.02
       const isCodOrder = text(order?.payment_type || order?.paymentType || order?.order_type).toLowerCase() === 'cod'
       const bookingBlockedReasons = []
       if (!bookingReady()) bookingBlockedReasons.push('Enter the Skylink free-form invoice type ID in admin courier credentials before booking.')
@@ -201,8 +204,8 @@ export const createSkylinkClient = ({
         serviceProvider: 'skylink', service_provider: 'skylink', courier_option_key: `skylink:${quoteId}`,
         skylink_quote_id: quoteId, service: serviceCode, service_code: serviceCode, mode: 'air',
         rate: freight, courier_cost_estimate: total,
-        total_charges_without_gst: Number((freight + codCharges + otherCharges).toFixed(2)), total_charges_with_gst: total,
-        total_charges: Number((freight + codCharges + otherCharges).toFixed(2)), wallet_debit_amount: total,
+        total_charges_without_gst: subtotal, total_charges_with_gst: total,
+        total_charges: subtotal, wallet_debit_amount: total,
         cod_charges: codCharges, gst_percent: amount(rate.gst_per) || 18, gst_amount: gstAmount,
         other_charges: otherCharges, booking_available: canBookQuote, can_book: canBookQuote,
         booking_blocked_reason: bookingBlockedReasons.join(' ') || null,
