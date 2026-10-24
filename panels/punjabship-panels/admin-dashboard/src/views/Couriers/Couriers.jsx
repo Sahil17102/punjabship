@@ -32,6 +32,7 @@ import {
   useToast,
   VStack,
 } from '@chakra-ui/react'
+import { fetchSMECourierStatus, saveSMECourierCredentials } from 'services/order.service'
 import CustomModal from 'components/Modal/CustomModal'
 import {
   useCouriers,
@@ -40,7 +41,7 @@ import {
   useUpdateCourierStatus,
 } from 'hooks/useCouriers'
 import { useDebounce } from 'hooks/useDebounce'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { GenericTable } from 'views/Dashboard/Tables/components/GenericTable'
 import { COURIER_PROVIDER_OPTIONS } from '../../constants/courierProviders'
@@ -63,7 +64,30 @@ const Couriers = () => {
   // In your component:
   const [openPopoverId, setOpenPopoverId] = useState(null)
   const [formData, setFormData] = useState({ businessType: ['b2c', 'b2b'] })
+  const [smeStatus, setSmeStatus] = useState(null)
+  const [smeCredentials, setSmeCredentials] = useState({ username: '', password: '', serviceCode: 'INTERNATIONAL PRIORITY' })
+  const [smeSaving, setSmeSaving] = useState(false)
   const toast = useToast()
+
+  useEffect(() => {
+    fetchSMECourierStatus().then(setSmeStatus).catch(() => setSmeStatus({ configured: false }))
+  }, [])
+
+  const handleSaveSmeCredentials = async () => {
+    if (!smeCredentials.username.trim() || (!smeCredentials.password && !smeStatus?.configured)) {
+      toast({ title: 'Enter SME Courier username and password', status: 'warning' })
+      return
+    }
+    setSmeSaving(true)
+    try {
+      await saveSMECourierCredentials(smeCredentials)
+      setSmeStatus({ ...smeStatus, configured: true, passwordConfigured: true, service: smeCredentials.serviceCode })
+      setSmeCredentials({ ...smeCredentials, password: '' })
+      toast({ title: 'SME Courier credentials verified and saved', status: 'success' })
+    } catch (error) {
+      toast({ title: error?.response?.data?.message || 'Could not save SME Courier credentials', status: 'error' })
+    } finally { setSmeSaving(false) }
+  }
 
   const columnKeys = ['id', 'name', 'serviceProvider', 'businessType', 'isEnabled', 'createdAt']
   const captions = [
@@ -253,6 +277,18 @@ const Couriers = () => {
 
   return (
     <Flex direction="column" pt={{ base: '120px', md: '75px' }} gap={4}>
+      <Box bg="white" borderWidth="1px" borderRadius="lg" p={5}>
+        <Flex justify="space-between" align="center" mb={3}>
+          <Box><Text fontSize="lg" fontWeight="700">SME Courier • FedEx Direct</Text><Text fontSize="sm" color="gray.600">Credentials are checked with SME Courier and stored on the PunjabShip server.</Text></Box>
+          <Badge colorScheme={smeStatus?.configured ? 'green' : 'orange'}>{smeStatus?.configured ? 'Connected' : 'Not configured'}</Badge>
+        </Flex>
+        <Flex direction={{ base: 'column', md: 'row' }} gap={3} align="end">
+          <FormControl><FormLabel>SME username</FormLabel><Input autoComplete="off" value={smeCredentials.username} onChange={(e) => setSmeCredentials({ ...smeCredentials, username: e.target.value })} placeholder={smeStatus?.configured ? 'Enter username to update' : 'Enter SME Courier username'} /></FormControl>
+          <FormControl><FormLabel>Password {smeStatus?.configured ? '(leave blank to keep saved password)' : ''}</FormLabel><Input type="password" autoComplete="new-password" value={smeCredentials.password} onChange={(e) => setSmeCredentials({ ...smeCredentials, password: e.target.value })} placeholder={smeStatus?.configured ? 'Saved securely; never displayed' : 'Enter SME Courier password'} /></FormControl>
+          <FormControl><FormLabel>Service code</FormLabel><Input value={smeCredentials.serviceCode} onChange={(e) => setSmeCredentials({ ...smeCredentials, serviceCode: e.target.value })} /></FormControl>
+          <Button colorScheme="blue" onClick={handleSaveSmeCredentials} isLoading={smeSaving}>Verify & Save</Button>
+        </Flex>
+      </Box>
       {/* Delhivery Service Info */}
       {delhiveryCouriers.length > 0 && (
         <Alert status="info" borderRadius="md">

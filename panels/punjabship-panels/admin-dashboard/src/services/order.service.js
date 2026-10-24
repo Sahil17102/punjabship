@@ -41,6 +41,11 @@ export async function fetchSMECourierStatus() {
   return response.data?.data || {}
 }
 
+export async function saveSMECourierCredentials(credentials) {
+  const response = await api.post('/admin/integrations/smecourier/credentials', credentials)
+  return response.data
+}
+
 export async function fetchBulkTracking(awbs = []) {
   try {
     const cleaned = awbs.map((awb) => String(awb || '').trim()).filter(Boolean)

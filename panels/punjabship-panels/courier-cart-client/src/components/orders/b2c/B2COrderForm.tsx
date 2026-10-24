@@ -102,6 +102,7 @@ export type B2CFormData = {
     | 'velocity'
     | 'icarry'
     | 'shipglobal'
+    | 'smecourier'
   pickupAddress?: string
   pickupLocationPOCName?: string
   courierPartnerId: string

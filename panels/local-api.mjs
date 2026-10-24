@@ -1930,7 +1930,16 @@ http.createServer(async (req, res) => {
     }
     if (path === '/api/admin/integrations/smecourier/status' && req.method === 'GET') {
       if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
-      return send({ success: true, data: { provider: 'SME Courier FedEx Direct', configured: smeCourier.isConfigured(), liveBookingEnabled: smeCourier.isConfigured(), service: smeCourier.serviceCode, apiBaseUrl: smeCourier.baseUrl, credentialsSource: 'server_environment' } })
+      return send({ success: true, data: { provider: 'SME Courier FedEx Direct', configured: smeCourier.isConfigured(), liveBookingEnabled: smeCourier.isConfigured(), service: smeCourier.serviceCode, apiBaseUrl: smeCourier.baseUrl, credentialsSource: 'server_environment', passwordConfigured: smeCourier.isConfigured() } })
+    }
+    if (path === '/api/admin/integrations/smecourier/credentials' && req.method === 'POST') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      try {
+        await smeCourier.configure({ username: body.username, password: body.password, serviceCode: body.serviceCode })
+        return send({ success: true, message: 'SME Courier credentials verified and saved securely.' })
+      } catch (error) {
+        return send({ success: false, message: error.message || 'Could not configure SME Courier.' }, error.statusCode || 502)
+      }
     }
     const adminKycMatch = path.match(/^\/api\/admin\/users\/([^/]+)\/kyc$/)
     if (adminKycMatch && req.method === 'GET') {

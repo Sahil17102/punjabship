@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
 
 const DEFAULT_BASE_URL = 'https://portal.smecourier.in'
 const text = (value) => String(value ?? '').trim()
@@ -119,7 +119,7 @@ export const createSMECourierClient = ({
   fetchImpl = fetch,
 } = {}) => {
   const settings = { username: text(username), password: text(password), baseUrl: text(baseUrl).replace(/\/$/, ''), serviceCode: text(serviceCode), shipmentType: text(shipmentType), docType: text(docType), docValue: text(docValue), fedexAccountId: text(fedexAccountId), packageId: text(packageId) }
-  const configured = Boolean(settings.username && settings.password && settings.serviceCode)
+  let configured = Boolean(settings.username && settings.password && settings.serviceCode)
   let token = ''
   let refreshToken = ''
   let tokenExpiresAt = 0
@@ -158,8 +158,31 @@ export const createSMECourierClient = ({
     })().finally(() => { loginPromise = null })
     return loginPromise
   }
+  const configure = async ({ username: nextUsername, password: nextPassword, serviceCode: nextServiceCode }) => {
+    const cleanUsername = text(nextUsername) || settings.username
+    const cleanPassword = text(nextPassword) || settings.password
+    const cleanService = text(nextServiceCode) || settings.serviceCode
+    if (!cleanUsername || !cleanPassword || !cleanService) throw Object.assign(new Error('Username, password, and service code are required.'), { statusCode: 400 })
+    const login = await request('/api/user/login', { UserName: cleanUsername, Password: cleanPassword })
+    if (!login?.Success || !login.AccessToken) throw Object.assign(new Error(login?.Message || 'SME Courier login failed; credentials were not saved.'), { statusCode: 422 })
+    const filePath = resolve(process.cwd(), '../shared/smecourier.env')
+    mkdirSync(dirname(filePath), { recursive: true })
+    const contents = [`SMECOURIER_USERNAME=${cleanUsername}`, `SMECOURIER_PASSWORD=${cleanPassword}`, `SMECOURIER_SERVICE_CODE=${cleanService}`, `SMECOURIER_SHIPMENT_TYPE=${settings.shipmentType}`, `SMECOURIER_DOC_TYPE=${settings.docType}`, settings.docValue ? `SMECOURIER_DOC_VALUE=${settings.docValue}` : '', settings.fedexAccountId ? `SMECOURIER_FEDEX_ACCOUNT_ID=${settings.fedexAccountId}` : '', settings.packageId ? `SMECOURIER_PACKAGE_ID=${settings.packageId}` : ''].filter(Boolean).join('\n') + '\n'
+    const tempPath = `${filePath}.tmp-${process.pid}`
+    writeFileSync(tempPath, contents, { mode: 0o600 })
+    chmodSync(tempPath, 0o600)
+    renameSync(tempPath, filePath)
+    chmodSync(filePath, 0o600)
+    settings.username = cleanUsername; settings.password = cleanPassword; settings.serviceCode = cleanService
+    process.env.SMECOURIER_USERNAME = cleanUsername; process.env.SMECOURIER_PASSWORD = cleanPassword; process.env.SMECOURIER_SERVICE_CODE = cleanService
+    configured = true
+    token = login.AccessToken; refreshToken = login.RefreshToken || ''
+    tokenExpiresAt = Date.now() + Number(login.AccessTokenExpiresInMinutes || 15) * 60000
+    return true
+  }
   return {
     isConfigured: () => configured,
+    configure,
     baseUrl: settings.baseUrl,
     serviceCode: settings.serviceCode,
     defaults: { ...settings, password: undefined },
