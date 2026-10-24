@@ -16,11 +16,13 @@ import {
 import { createSMECourierClient, extractSMEShipment, mapPunjabShipOrderToSME, validateSMEOrder } from './smecourier.mjs'
 import { createSkylinkClient, validateSkylinkOrder } from './skylink.mjs'
 import { createFlightGoClient, validateFlightGoOrder } from './flightgo.mjs'
+import { createDillikingClient, dillikingCountryName, dillikingServicesForCountry, mapDillikingTracking, validateDillikingOrder } from './dilliking.mjs'
 import { createStateStore } from './state-store.mjs'
 import { isMailConfigured, mailStatus, sendOtpEmail, sendPasswordResetEmail } from './mailer.mjs'
 import { csvBoolean, csvHeaderKey, csvNumber, parseCsvObjects } from './csv-imports.mjs'
 import {
   createObjectKey,
+  getObjectBuffer,
   isOwnerKey,
   isPunjabShipKey,
   isStorageConfigured,
@@ -50,6 +52,7 @@ const shipGlobal = createShipGlobalClient()
 const smeCourier = createSMECourierClient()
 const skylinkCourier = createSkylinkClient()
 const flightGoCourier = createFlightGoClient()
+const dillikingCourier = createDillikingClient()
 const otpRequestAttempts = new Map()
 const globalPostalData = (() => {
   try {
@@ -87,6 +90,8 @@ const INTERNATIONAL_ZONE_DEFINITIONS = [
   { key: 'canada', code: 'CA', name: 'Canada', countries: ['Canada'], b2cRate: 1450, b2cRto: 1200, b2cExtra: 480, b2cExtraRto: 420, b2bPerKg: 210 },
   { key: 'usa', code: 'US', name: 'United States', countries: ['United States'], b2cRate: 1350, b2cRto: 1150, b2cExtra: 450, b2cExtraRto: 400, b2bPerKg: 195 },
   { key: 'europe', code: 'EU', name: 'Europe', countries: EUROPE_COUNTRIES, b2cRate: 1550, b2cRto: 1300, b2cExtra: 520, b2cExtraRto: 460, b2bPerKg: 225 },
+  { key: 'australia', code: 'AU', name: 'Australia', countries: ['Australia'], b2cRate: 1700, b2cRto: 0, b2cExtra: 680, b2cExtraRto: 0, b2bPerKg: 3400 },
+  { key: 'new-zealand', code: 'NZ', name: 'New Zealand', countries: ['New Zealand'], b2cRate: 1800, b2cRto: 0, b2cExtra: 720, b2cExtraRto: 0, b2bPerKg: 3600 },
 ]
 // Services returned by the live Skylink rate calculator for a 0.5 kg
 // Delhi-to-Canada NONDOX shipment on 2026-10-25. These editable starter
@@ -100,6 +105,7 @@ const SKYLINK_SERVICE_CATALOG = [
   { courierId: 99105, serviceCode: 'DHL EXPRESS', name: 'DHL EXPRESS', canadaRate: 2720.09, canadaPerKg: 6419.42 },
 ]
 const FLIGHTGO_SERVICE = { courierId: 99004, serviceCode: 'FLIGHTGO', name: 'FlightGo Express' }
+const DILLIKING_SERVICE = { courierId: 99005, serviceCode: 'DILLIKING', name: 'Dilliking International' }
 const DEFAULT_B2C_ZONES = [
   { id: 'b2c-local', code: 'A', name: 'Local', description: 'Same city / nearby pincode cluster', business_type: 'b2c', is_active: true },
   { id: 'b2c-state', code: 'B', name: 'Within State', description: 'Pickup and delivery in the same state', business_type: 'b2c', is_active: true },
@@ -231,8 +237,8 @@ const defaultB2bZoneRates = () => {
 }
 const defaultSMEB2BMatrixRates = () => {
   const domesticOrigins = DEFAULT_B2B_ZONES.filter((zone) => zone.country === 'India')
-  const internationalDestinations = DEFAULT_B2B_ZONES.filter((zone) => zone.country !== 'India')
   const perKgByZone = { Canada: 2800, 'United States': 2600, Europe: 3000 }
+  const internationalDestinations = DEFAULT_B2B_ZONES.filter((zone) => Object.hasOwn(perKgByZone, zone.name))
   const plans = (state?.plans || []).filter((plan) => String(plan.business_type || '').toLowerCase() === 'b2b')
   const planIds = [...new Set(['starter-b2b', ...plans.map((plan) => String(plan.id))])]
   return planIds.flatMap((planId) => domesticOrigins.flatMap((origin) => internationalDestinations.map((destination) => ({
@@ -305,8 +311,8 @@ const defaultFlightGoRates = () => [{
 
 const defaultFlightGoB2BMatrixRates = () => {
   const domesticOrigins = DEFAULT_B2B_ZONES.filter((zone) => zone.country === 'India')
-  const destinations = DEFAULT_B2B_ZONES.filter((zone) => zone.country !== 'India')
   const perKg = { Canada: 3600, 'United States': 3400, Europe: 4000 }
+  const destinations = DEFAULT_B2B_ZONES.filter((zone) => Object.hasOwn(perKg, zone.name))
   const plans = (state?.plans || []).filter((plan) => String(plan.business_type || '').toLowerCase() === 'b2b')
   const planIds = [...new Set(['starter-b2b', ...plans.map((plan) => String(plan.id))])]
   return planIds.flatMap((planId) => domesticOrigins.flatMap((origin) => destinations.map((destination) => ({
@@ -316,6 +322,39 @@ const defaultFlightGoB2BMatrixRates = () => {
     service_code: FLIGHTGO_SERVICE.serviceCode, plan_id: planId, ratePerKg: perKg[destination.name], rate_per_kg: perKg[destination.name],
     min_charge: perKg[destination.name] * 0.5, min_charge_weight: 0.5, volumetric_factor: 5000, is_active: true,
     rate_note: 'Editable FlightGo starter matrix rate. Direct B2B booking is not enabled.',
+  }))))
+}
+
+const DILLIKING_B2C_RATES = { Canada: 1600, 'United States': 1500, Europe: 1900, Australia: 1700, 'New Zealand': 1800 }
+const DILLIKING_B2C_EXTRA = { Canada: 650, 'United States': 600, Europe: 760, Australia: 680, 'New Zealand': 720 }
+const DILLIKING_B2B_RATES = { Canada: 3200, 'United States': 3000, Europe: 3800, Australia: 3400, 'New Zealand': 3600 }
+const DILLIKING_RATE_NOTE = 'Editable PunjabShip starter estimate. Dilliking documentation does not provide a live rate API; production AWB booking uses the configured Dilliking API.'
+const defaultDillikingRates = () => [{
+  id: 'rate-dilliking-b2c', plan_id: 'starter-b2c', businessType: 'b2c',
+  courier_id: DILLIKING_SERVICE.courierId, courier_name: DILLIKING_SERVICE.name, service_provider: 'dilliking',
+  service_code: DILLIKING_SERVICE.serviceCode, mode: 'air', min_weight: 0.5, cod_charges: 0, cod_percent: 0,
+  other_charges: 0, is_active: true, rate_note: DILLIKING_RATE_NOTE,
+  rates: Object.fromEntries(Object.entries(DILLIKING_B2C_RATES).map(([zone, forward]) => [zone, { forward, rto: 0 }])),
+  zone_slabs: Object.fromEntries(Object.entries(DILLIKING_B2C_RATES).map(([zone, forward]) => [zone, makeSlab(forward, 0, DILLIKING_B2C_EXTRA[zone], 0)])),
+}, {
+  id: 'rate-dilliking-b2b', plan_id: 'starter-b2b', businessType: 'b2b',
+  courier_id: DILLIKING_SERVICE.courierId, courier_name: DILLIKING_SERVICE.name, service_provider: 'dilliking',
+  service_code: DILLIKING_SERVICE.serviceCode, mode: 'air', min_weight: 0.5, cod_charges: 0, cod_percent: 0,
+  other_charges: 0, is_active: true, rate_note: `${DILLIKING_RATE_NOTE} Direct Dilliking B2B booking is not enabled.`,
+  rates: Object.fromEntries(Object.entries(DILLIKING_B2B_RATES).map(([zone, forward_per_kg]) => [zone, { forward_per_kg, rto_per_kg: 0, min_weight: 0.5 }])),
+}]
+
+const defaultDillikingB2BMatrixRates = () => {
+  const origins = DEFAULT_B2B_ZONES.filter((zone) => zone.country === 'India')
+  const destinations = DEFAULT_B2B_ZONES.filter((zone) => Object.hasOwn(DILLIKING_B2B_RATES, zone.name))
+  const planIds = [...new Set(['starter-b2b', ...(state?.plans || []).filter((plan) => String(plan.business_type || '').toLowerCase() === 'b2b').map((plan) => String(plan.id))])]
+  return planIds.flatMap((planId) => origins.flatMap((origin) => destinations.map((destination) => ({
+    id: `dilliking-b2b-rate-${planId}-${origin.code.toLowerCase()}-${destination.code.toLowerCase()}`,
+    originZoneId: origin.id, origin_zone_id: origin.id, destinationZoneId: destination.id, destination_zone_id: destination.id,
+    courier_id: DILLIKING_SERVICE.courierId, courier_name: DILLIKING_SERVICE.name, service_provider: 'dilliking',
+    service_code: DILLIKING_SERVICE.serviceCode, plan_id: planId, ratePerKg: DILLIKING_B2B_RATES[destination.name], rate_per_kg: DILLIKING_B2B_RATES[destination.name],
+    min_charge: DILLIKING_B2B_RATES[destination.name] * 0.5, min_charge_weight: 0.5, volumetric_factor: 5000, is_active: true,
+    rate_note: 'Editable Dilliking starter matrix rate. Direct B2B booking is not enabled.',
   }))))
 }
 
@@ -492,7 +531,7 @@ const defaultState = {
   },
   manualCouriers: [defaultManualCourier()],
   zones: [...DEFAULT_B2C_ZONES, ...DEFAULT_B2B_ZONES],
-  shippingRates: [defaultB2cRate(), defaultB2bRate(), ...defaultSkylinkRates(), ...defaultFlightGoRates()],
+  shippingRates: [defaultB2cRate(), defaultB2bRate(), ...defaultSkylinkRates(), ...defaultFlightGoRates(), ...defaultDillikingRates()],
   b2bZoneRates: defaultB2bZoneRates(),
   b2bAdditionalCharges: [],
   zoneMappings: [],
@@ -630,7 +669,7 @@ for (let index = 0; index < state.zones.length; index += 1) {
     stateNeedsSave = true
   }
 }
-for (const defaultRate of [defaultB2cRate(), defaultB2bRate(), ...defaultSkylinkRates(), ...defaultFlightGoRates()]) {
+for (const defaultRate of [defaultB2cRate(), defaultB2bRate(), ...defaultSkylinkRates(), ...defaultFlightGoRates(), ...defaultDillikingRates()]) {
   const existingRate = state.shippingRates.find((item) => item.id === defaultRate.id)
   if (!existingRate) {
     state.shippingRates.push(defaultRate)
@@ -686,6 +725,12 @@ for (const rate of defaultSkylinkB2BMatrixRates()) {
   }
 }
 for (const rate of defaultFlightGoB2BMatrixRates()) {
+  if (!state.b2bZoneRates.some((item) => item.id === rate.id)) {
+    state.b2bZoneRates.push(rate)
+    stateNeedsSave = true
+  }
+}
+for (const rate of defaultDillikingB2BMatrixRates()) {
   if (!state.b2bZoneRates.some((item) => item.id === rate.id)) {
     state.b2bZoneRates.push(rate)
     stateNeedsSave = true
@@ -1521,6 +1566,34 @@ const getFlightGoIntegrationReadiness = () => {
         : 'FlightGo test credentials are connected. Get production credentials from FlightGo before real shipments.',
   }
 }
+const getDillikingIntegrationReadiness = () => {
+  const configured = dillikingCourier.isConfigured()
+  const environment = dillikingCourier.defaults.environment
+  const bookingReady = configured && environment === 'production'
+  return {
+    configured, bookingReady, environment,
+    status: !configured ? 'Setup needed' : bookingReady ? 'Production connected' : 'Sandbox connected',
+    note: !configured
+      ? 'Add and verify Dilliking production email and password.'
+      : bookingReady
+        ? 'Dilliking production AWB booking and tracking are connected.'
+        : 'Sandbox is connected, but user bookings stay disabled until production credentials are configured.',
+  }
+}
+const dillikingKycForSeller = async (seller) => {
+  const kyc = seller?.domesticKyc || {}
+  const candidates = [
+    { type: 5, number: kyc.gstin || seller?.companyInfo?.gstNumber, key: kyc.gstCertificateUrl, filename: kyc.gstCertificateOriginalName || 'gst-certificate.pdf' },
+    { type: 3, number: kyc.panNumber, key: kyc.businessPanUrl || kyc.panCardUrl, filename: kyc.businessPanOriginalName || kyc.panCardOriginalName || 'pan-card.pdf' },
+  ]
+  const selected = candidates.find((item) => item.number && item.key)
+  if (!selected) throw Object.assign(new Error('Upload and verify a GST certificate or PAN card with its number before Dilliking booking.'), { statusCode: 400 })
+  if (!isStorageConfigured()) throw Object.assign(new Error('PunjabShip document storage must be configured for Dilliking KYC upload.'), { statusCode: 503 })
+  if (!isPunjabShipKey(selected.key) || !isOwnerKey(selected.key, seller.id)) throw Object.assign(new Error('The selected KYC file is not a valid PunjabShip-owned document.'), { statusCode: 400 })
+  const document = await getObjectBuffer(selected.key)
+  if (!document.length) throw Object.assign(new Error('The selected KYC document is empty.'), { statusCode: 400 })
+  return { type: selected.type, number: selected.number, filename: selected.filename, filedata: document.toString('base64') }
+}
 
 const isManualCourierOrder = (body) => String(`${body?.integration_type || ''} ${body?.courier_partner || ''} ${body?.courier_option_key || ''}`).toLowerCase().includes('manual') || state.manualCouriers.some((item) => Number(item.courierId) === Number(body?.courier_id))
 const validateOrderPayload = (body, type) => {
@@ -1816,7 +1889,7 @@ http.createServer(async (req, res) => {
       : JSON.parse(raw.toString('utf8'))
     console.log(req.method, path)
 
-    if (path === '' || path === '/api/health') return send({ success: true, mode: 'punjabship-demo-api', storage: stateStore.mode, integrations: { shipglobal: { configured: shipGlobal.isConfigured(), service: SHIPGLOBAL_SERVICE }, smecourier: { configured: smeCourier.isConfigured(), service: smeCourier.serviceCode }, skylink: { configured: skylinkCourier.isConfigured(), bookingReady: skylinkCourier.isBookingReady() }, flightgo: { configured: flightGoCourier.isConfigured(), bookingReady: flightGoCourier.isBookingReady(), environment: flightGoCourier.defaults.environment }, email: mailStatus(), objectStorage: storageStatus() } })
+    if (path === '' || path === '/api/health') return send({ success: true, mode: 'punjabship-demo-api', storage: stateStore.mode, integrations: { shipglobal: { configured: shipGlobal.isConfigured(), service: SHIPGLOBAL_SERVICE }, smecourier: { configured: smeCourier.isConfigured(), service: smeCourier.serviceCode }, skylink: { configured: skylinkCourier.isConfigured(), bookingReady: skylinkCourier.isBookingReady() }, flightgo: { configured: flightGoCourier.isConfigured(), bookingReady: flightGoCourier.isBookingReady(), environment: flightGoCourier.defaults.environment }, dilliking: { configured: dillikingCourier.isConfigured(), bookingReady: getDillikingIntegrationReadiness().bookingReady, environment: dillikingCourier.defaults.environment }, email: mailStatus(), objectStorage: storageStatus() } })
     if (path === '/api/auth/request-otp' && req.method === 'POST') {
       const email = String(body.email || '').trim().toLowerCase()
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return send({ error: 'Enter a valid email address.' }, 400)
@@ -2200,6 +2273,20 @@ http.createServer(async (req, res) => {
         return send({ success: true, message: 'FlightGo credentials verified and saved securely.', data: getFlightGoIntegrationReadiness() })
       } catch (error) {
         return send({ success: false, message: error.message || 'Could not configure FlightGo.' }, error.statusCode || 502)
+      }
+    }
+    if (path === '/api/admin/integrations/dilliking/status' && req.method === 'GET') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const readiness = getDillikingIntegrationReadiness()
+      return send({ success: true, data: { provider: DILLIKING_SERVICE.name, ...readiness, liveBookingEnabled: readiness.bookingReady, apiBaseUrl: dillikingCourier.apiBaseUrl, credentialsSource: 'server_environment', settings: dillikingCourier.defaults } })
+    }
+    if (path === '/api/admin/integrations/dilliking/credentials' && req.method === 'POST') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      try {
+        await dillikingCourier.configure({ email: body.email, password: body.password, environment: body.environment || 'production', pcsType: body.pcsType, baseUrl: body.baseUrl })
+        return send({ success: true, message: 'Dilliking credentials verified and saved securely.', data: getDillikingIntegrationReadiness() })
+      } catch (error) {
+        return send({ success: false, message: error.message || 'Could not configure Dilliking.' }, error.statusCode || 502)
       }
     }
     const adminKycMatch = path.match(/^\/api\/admin\/users\/([^/]+)\/kyc$/)
@@ -2991,6 +3078,12 @@ http.createServer(async (req, res) => {
           isEnabled: flightGoReadiness.bookingReady, businessType: ['b2c', 'b2b'], isIntegration: true, directB2bBookingUnavailable: businessType === 'b2b',
           integrationConfigured: flightGoReadiness.configured, integrationReady: flightGoReadiness.bookingReady, integrationStatus: flightGoReadiness.status,
           integrationNote: businessType === 'b2b' ? 'Editable matrix rate only; direct FlightGo B2B booking is not enabled.' : flightGoReadiness.note })
+        const dillikingReadiness = getDillikingIntegrationReadiness()
+        couriers.push({ id: DILLIKING_SERVICE.courierId, courierId: DILLIKING_SERVICE.courierId, name: DILLIKING_SERVICE.name, displayName: DILLIKING_SERVICE.name,
+          serviceCode: DILLIKING_SERVICE.serviceCode, serviceProvider: 'dilliking', service_provider: 'dilliking', mode: 'air',
+          isEnabled: dillikingReadiness.bookingReady, businessType: ['b2c', 'b2b'], isIntegration: true, directB2bBookingUnavailable: businessType === 'b2b',
+          integrationConfigured: dillikingReadiness.configured, integrationReady: dillikingReadiness.bookingReady, integrationStatus: dillikingReadiness.status,
+          integrationNote: businessType === 'b2b' ? 'Editable matrix rate only; direct Dilliking B2B booking is not enabled.' : dillikingReadiness.note })
       }
       const provider = String(requestUrl.searchParams.get('serviceProvider') || '').trim().toLowerCase()
       const search = String(requestUrl.searchParams.get('search') || '').trim().toLowerCase()
@@ -3002,6 +3095,7 @@ http.createServer(async (req, res) => {
       const readiness = getSMEIntegrationReadiness()
       const skylinkReadiness = getSkylinkIntegrationReadiness()
       const flightGoReadiness = getFlightGoIntegrationReadiness()
+      const dillikingReadiness = getDillikingIntegrationReadiness()
       return send({ success: true, data: [{
         serviceProvider: 'smecourier', displayName: 'SME Courier • FedEx Direct', totalCouriers: 1,
         enabledCouriers: readiness.bookingReady ? 1 : 0, isEnabled: readiness.bookingReady,
@@ -3014,6 +3108,10 @@ http.createServer(async (req, res) => {
         serviceProvider: 'flightgo', displayName: 'FlightGo Express', totalCouriers: 1,
         enabledCouriers: flightGoReadiness.bookingReady ? 1 : 0, isEnabled: flightGoReadiness.bookingReady,
         statusLabel: flightGoReadiness.status, managedByIntegration: true, note: flightGoReadiness.note,
+      }, {
+        serviceProvider: 'dilliking', displayName: DILLIKING_SERVICE.name, totalCouriers: 1,
+        enabledCouriers: dillikingReadiness.bookingReady ? 1 : 0, isEnabled: dillikingReadiness.bookingReady,
+        statusLabel: dillikingReadiness.status, managedByIntegration: true, note: dillikingReadiness.note,
       }] })
     }
     if (path === '/api/couriers/full-list' || path === '/api/admin/couriers/list' || path === '/api/couriers/list') {
@@ -3041,6 +3139,12 @@ http.createServer(async (req, res) => {
           isEnabled: flightGoReadiness.bookingReady, businessType: ['b2c', 'b2b'], isIntegration: true, directB2bBookingUnavailable: businessType === 'b2b',
           integrationConfigured: flightGoReadiness.configured, integrationReady: flightGoReadiness.bookingReady, integrationStatus: flightGoReadiness.status,
           integrationNote: businessType === 'b2b' ? 'Editable matrix rate only; direct FlightGo B2B booking is not enabled.' : flightGoReadiness.note })
+        const dillikingReadiness = getDillikingIntegrationReadiness()
+        couriers.push({ id: DILLIKING_SERVICE.courierId, courierId: DILLIKING_SERVICE.courierId, name: DILLIKING_SERVICE.name, displayName: DILLIKING_SERVICE.name,
+          serviceCode: DILLIKING_SERVICE.serviceCode, serviceProvider: 'dilliking', service_provider: 'dilliking', mode: 'air',
+          isEnabled: dillikingReadiness.bookingReady, businessType: ['b2c', 'b2b'], isIntegration: true, directB2bBookingUnavailable: businessType === 'b2b',
+          integrationConfigured: dillikingReadiness.configured, integrationReady: dillikingReadiness.bookingReady, integrationStatus: dillikingReadiness.status,
+          integrationNote: businessType === 'b2b' ? 'Editable matrix rate only; direct Dilliking B2B booking is not enabled.' : dillikingReadiness.note })
       }
       return send({ success: true, data: couriers })
     }
@@ -3279,7 +3383,35 @@ http.createServer(async (req, res) => {
           flightGoQuotes = [{ id: 99004, courier_id: 99004, name: 'FlightGo Express', displayName: 'FlightGo Express', integration_type: 'flightgo', serviceProvider: 'flightgo', courier_option_key: 'flightgo:unavailable', booking_available: false, can_book: false, booking_blocked_reason: error.message || 'FlightGo rates are unavailable for this route.', provider_serviceability: { provider: 'FlightGo Express', booking_available: false, can_book: false } }]
         }
       }
-      return send({ success: true, data: [...manualQuotes, ...(includeShipGlobal ? [courier] : []), ...(includeSME ? [smeOption] : []), ...skylinkQuotes, ...flightGoQuotes] })
+      let dillikingQuotes = []
+      if (normalizeBusinessType(body.shipment_type || body.shipmentType) === 'b2c' && path !== '/api/couriers/b2b-rate-quotes') {
+        const services = dillikingServicesForCountry(destinationCountryCode)
+        const rate = state.shippingRates.find((item) => Number(item.courier_id) === DILLIKING_SERVICE.courierId && normalizeBusinessType(item.businessType) === 'b2c' && item.is_active === true && (!body.plan_id || String(item.plan_id) === String(body.plan_id)))
+        const destinationZone = zoneForShipmentDestination('b2c', destination, destinationCountryCode)
+        const weightKg = Math.max(Number(body.weight || 0) / 1000, Number(rate?.min_weight || 0.5))
+        const estimatedFreight = rate && destinationZone ? calculateB2cFreight(rate, destinationZone.name, weightKg) : null
+        const readiness = getDillikingIntegrationReadiness()
+        const prepaid = String(body.payment_type || (Number(body.cod) ? 'cod' : 'prepaid')).toLowerCase() !== 'cod'
+        if (services.length && Number.isFinite(estimatedFreight) && estimatedFreight > 0) {
+          const other = Number(rate.other_charges || 0)
+          const beforeGst = Number((estimatedFreight + other).toFixed(2))
+          const gst = Number((beforeGst * 0.18).toFixed(2))
+          const totalWithGst = Number((beforeGst + gst).toFixed(2))
+          const canBook = readiness.bookingReady && prepaid
+          dillikingQuotes = services.map((service, index) => ({
+            id: DILLIKING_SERVICE.courierId + index, courier_id: DILLIKING_SERVICE.courierId, name: `${DILLIKING_SERVICE.name} - ${service}`, displayName: `${DILLIKING_SERVICE.name} - ${service}`,
+            integration_type: 'dilliking', serviceProvider: 'dilliking', service, mode: 'air', courier_option_key: `dilliking:${encodeURIComponent(service)}`,
+            rate: Number(estimatedFreight.toFixed(2)), courier_cost_estimate: totalWithGst, chargeable_weight: Number((weightKg * 1000).toFixed(0)),
+            other_charges: other, total_charges_without_gst: beforeGst, gst_percent: 18, gst_amount: gst, total_charges_with_gst: totalWithGst, total_charges: totalWithGst, wallet_debit_amount: totalWithGst,
+            booking_available: canBook, can_book: canBook,
+            booking_blocked_reason: canBook ? null : !prepaid ? 'Dilliking international booking supports prepaid shipments only.' : readiness.note,
+            rate_status: 'admin_estimate', rate_note: rate.rate_note,
+            approxZone: { id: destinationZone.id, code: destinationZone.code, name: destinationZone.name, country: dillikingCountryName(destinationCountryCode), countries: normalizeZoneCountries(destinationZone) }, zone_id: destinationZone.id,
+            provider_serviceability: { provider: DILLIKING_SERVICE.name, service, booking_available: canBook, can_book: canBook },
+          }))
+        }
+      }
+      return send({ success: true, data: [...manualQuotes, ...(includeShipGlobal ? [courier] : []), ...(includeSME ? [smeOption] : []), ...skylinkQuotes, ...flightGoQuotes, ...dillikingQuotes] })
     }
     if (path === '/api/orders/check-order-number' && req.method === 'GET') {
       const orderNumber = String(requestUrl.searchParams.get('orderNumber') || '').trim().toLowerCase()
@@ -3392,6 +3524,50 @@ http.createServer(async (req, res) => {
         state.orders.unshift(order)
         await stateStore.save(state)
         return send({ success: true, message: 'FlightGo shipment created.', shipment: orderForPanels(order), providerResponse: providerResult.data }, 201)
+      }
+      if (String(normalizedBody.integration_type || '').toLowerCase() === 'dilliking' || String(normalizedBody.courier_option_key || '').toLowerCase().startsWith('dilliking:')) {
+        const integrationReadiness = getDillikingIntegrationReadiness()
+        if (!integrationReadiness.bookingReady) return send({ success: false, message: 'Dilliking production credentials must be configured by an administrator before booking.' }, 503)
+        if (String(normalizedBody.payment_type || normalizedBody.order_type || 'prepaid').toLowerCase() === 'cod') return send({ success: false, message: 'Dilliking international booking supports prepaid shipments only.' }, 400)
+        if (state.orders.some((order) => String(order.order_number) === String(normalizedBody.order_number))) return send({ success: false, message: 'Order number already exists.' }, 409)
+        const destinationCode = normalizeCountryCode(normalizedBody.consignee?.country_code || normalizedBody.country_code)
+        const optionKey = String(normalizedBody.courier_option_key || '')
+        let service = ''
+        try { service = decodeURIComponent(optionKey.startsWith('dilliking:') ? optionKey.slice('dilliking:'.length) : '') } catch { service = '' }
+        const allowedServices = dillikingServicesForCountry(destinationCode)
+        if (!allowedServices.includes(service)) return send({ success: false, message: 'The selected Dilliking service is no longer valid for this destination. Refresh courier rates and select again.' }, 409)
+        const selectedPickup = (state.pickupAddresses[seller.id] || []).find((address) => String(address.pickupId || address.id) === String(normalizedBody.pickup_location_id || ''))
+        const sourcePickup = { ...(selectedPickup?.pickup || {}), ...(normalizedBody.pickup || {}) }
+        const providerOrder = {
+          ...normalizedBody,
+          consignee: { ...(normalizedBody.consignee || {}), country: dillikingCountryName(destinationCode) },
+          pickup: {
+            ...sourcePickup,
+            name: sourcePickup.name || sourcePickup.contactName,
+            phone: sourcePickup.phone || sourcePickup.contactPhone || sourcePickup.contactNumber,
+            warehouse_name: sourcePickup.warehouse_name || sourcePickup.addressNickname || seller.companyInfo?.businessName,
+            address: sourcePickup.address || sourcePickup.address_line_1 || sourcePickup.addressLine1,
+            address_line_2: sourcePickup.address_line_2 || sourcePickup.addressLine2,
+            pincode: sourcePickup.pincode || sourcePickup.zip_code,
+          },
+          __seller: seller,
+          __dillikingKyc: await dillikingKycForSeller(seller),
+        }
+        const missing = validateDillikingOrder(providerOrder, service)
+        if (missing.length) return send({ success: false, message: `Missing Dilliking fields: ${missing.join(', ')}`, missingFields: missing }, 400)
+        const providerResult = await dillikingCourier.createAwb(providerOrder, service)
+        let labelUrl = null
+        if (providerResult.labelBase64) {
+          const label = Buffer.from(providerResult.labelBase64, 'base64')
+          const labelKey = createObjectKey({ ownerId: seller.id, folder: 'shipping-labels', filename: `dilliking-${providerResult.awb}.pdf` })
+          await putObject({ key: labelKey, body: label, contentType: 'application/pdf', metadata: { provider: 'dilliking', awb: providerResult.awb } })
+          labelUrl = labelKey
+        }
+        const now = new Date().toISOString()
+        const order = { ...normalizedBody, id: `dilliking-${randomUUID()}`, order_id: normalizedBody.order_number, user_id: seller.id, type: 'b2c', integration_type: 'dilliking', courier_partner: DILLIKING_SERVICE.name, courier_id: DILLIKING_SERVICE.courierId, awb_number: providerResult.awb, label_url: labelUrl, status: 'shipment_created', order_status: 'shipment_created', provider: 'dilliking', provider_service: service, provider_last_status: 'Shipment created', provider_response: providerResult.data, dilliking_forwarding_no: providerResult.forwardingNo, dilliking_booking_status: 'booked', buyer_name: normalizedBody.consignee?.name || '', buyer_phone: normalizedBody.consignee?.phone || '', customer_name: normalizedBody.consignee?.name || '', customer_phone: normalizedBody.consignee?.phone || '', created_at: now, updated_at: now }
+        state.orders.unshift(order)
+        await stateStore.save(state)
+        return send({ success: true, message: 'Dilliking shipment created.', shipment: orderForPanels(order), providerResponse: providerResult.data }, 201)
       }
       if (!isShipGlobalOrder(normalizedBody)) return send({ success: false, message: 'Select ShipGlobal as the courier partner for live booking.' }, 400)
       if (!shipGlobal.isConfigured()) return send({ success: false, message: 'ShipGlobal production credentials are not configured yet.' }, 503)
@@ -3600,6 +3776,16 @@ http.createServer(async (req, res) => {
               order.updated_at = new Date().toISOString()
               save()
             }
+          } else if (order?.integration_type === 'dilliking') {
+            if (!dillikingCourier.isConfigured()) throw Object.assign(new Error('Dilliking credentials are not configured.'), { statusCode: 503 })
+            const providerResult = await dillikingCourier.track(order.awb_number || reference)
+            tracking = mapDillikingTracking(providerResult, order)
+            order.order_status = tracking.status
+            order.status = tracking.status
+            order.provider_last_status = tracking.shipment_info
+            order.tracking_events = tracking.history
+            order.updated_at = new Date().toISOString()
+            save()
           } else if (order) tracking = localTracking(order)
           else throw Object.assign(new Error('No shipment found.'), { statusCode: 404 })
           results.push({ awb: reference, success: true, data: tracking })

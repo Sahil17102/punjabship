@@ -100,6 +100,12 @@ export const putObject = async ({ key, body, contentType, metadata = {} }) => {
 }
 
 export const headObject = async (key) => getClient().send(new HeadObjectCommand({ Bucket: bucket, Key: key }))
+export const getObjectBuffer = async (key) => {
+  if (!isPunjabShipKey(key)) throw new Error('Storage key is outside the PunjabShip prefix.')
+  const response = await getClient().send(new GetObjectCommand({ Bucket: bucket, Key: key }))
+  if (!response.Body) throw new Error('Stored file is empty.')
+  return Buffer.from(await response.Body.transformToByteArray())
+}
 export const deleteObject = async (key) => getClient().send(new DeleteObjectCommand({ Bucket: bucket, Key: key }))
 export const signedDownloadUrl = async (key, expiresIn = 3600) => {
   if (!isPunjabShipKey(key)) throw new Error('Storage key is outside the PunjabShip prefix.')

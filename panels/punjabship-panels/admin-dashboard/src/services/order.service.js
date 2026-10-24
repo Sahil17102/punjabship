@@ -66,6 +66,16 @@ export async function saveFlightGoCredentials(credentials) {
   return response.data
 }
 
+export async function fetchDillikingStatus() {
+  const response = await api.get('/admin/integrations/dilliking/status')
+  return response.data?.data || response.data
+}
+
+export async function saveDillikingCredentials(credentials) {
+  const response = await api.post('/admin/integrations/dilliking/credentials', credentials)
+  return response.data
+}
+
 export async function fetchBulkTracking(awbs = []) {
   try {
     const cleaned = awbs.map((awb) => String(awb || '').trim()).filter(Boolean)

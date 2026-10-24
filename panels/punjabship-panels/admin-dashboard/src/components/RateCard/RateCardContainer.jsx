@@ -39,8 +39,10 @@ const RATE_CARD_PROVIDER_ALLOWLIST = new Set([
   'velocity',
   'smecourier',
   'skylink',
+  'flightgo',
+  'dilliking',
 ])
-const isCourierEnabled = (courier = {}) => courier.isEnabled !== false && courier.is_enabled !== false
+const isCourierEnabled = (courier = {}) => courier.isIntegration || (courier.isEnabled !== false && courier.is_enabled !== false)
 const isRateCardAllowedCourier = (courier = {}) =>
   isCourierEnabled(courier) &&
   RATE_CARD_PROVIDER_ALLOWLIST.has(

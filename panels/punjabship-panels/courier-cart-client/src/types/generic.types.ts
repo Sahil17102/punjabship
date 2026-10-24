@@ -141,6 +141,7 @@ export interface B2COrder {
     | 'smecourier'
     | 'skylink'
     | 'flightgo'
+    | 'dilliking'
   pincode: string
 
   // Product info

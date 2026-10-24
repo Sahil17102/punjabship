@@ -19,8 +19,8 @@ import CustomModal from './CustomModal'
 import { formatZoneCountries } from 'constants/countries'
 
 const normalizeProvider = (value) => String(value || '').trim().toLowerCase()
-const RATE_CARD_PROVIDER_ALLOWLIST = new Set(['delhivery', 'manual', 'velocity', 'smecourier'])
-const isCourierEnabled = (courier = {}) => courier.isEnabled !== false && courier.is_enabled !== false
+const RATE_CARD_PROVIDER_ALLOWLIST = new Set(['delhivery', 'manual', 'velocity', 'smecourier', 'skylink', 'flightgo', 'dilliking'])
+const isCourierEnabled = (courier = {}) => courier.isIntegration || (courier.isEnabled !== false && courier.is_enabled !== false)
 const isRateCardAllowedCourier = (courier = {}) =>
   isCourierEnabled(courier) &&
   RATE_CARD_PROVIDER_ALLOWLIST.has(

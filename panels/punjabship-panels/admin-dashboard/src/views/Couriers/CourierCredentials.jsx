@@ -16,7 +16,7 @@ import {
 import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Link as RouterLink } from 'react-router-dom'
-import { fetchSMECourierStatus, saveSMECourierCredentials, fetchSkylinkStatus, saveSkylinkCredentials, fetchFlightGoStatus, saveFlightGoCredentials } from 'services/order.service'
+import { fetchSMECourierStatus, saveSMECourierCredentials, fetchSkylinkStatus, saveSkylinkCredentials, fetchFlightGoStatus, saveFlightGoCredentials, fetchDillikingStatus, saveDillikingCredentials } from 'services/order.service'
 import {
   useBookDelhiveryLtlLastMileAppointment,
   useCancelDelhiveryLtlPickupRequest,
@@ -63,6 +63,9 @@ const CourierCredentials = () => {
   const [flightGoStatus, setFlightGoStatus] = useState(null)
   const [flightGoSaving, setFlightGoSaving] = useState(false)
   const [flightGoCredentials, setFlightGoCredentials] = useState({ username: '', password: '', apiKey: '', packageCode: 'NDX', environment: 'test' })
+  const [dillikingStatus, setDillikingStatus] = useState(null)
+  const [dillikingSaving, setDillikingSaving] = useState(false)
+  const [dillikingCredentials, setDillikingCredentials] = useState({ email: '', password: '', environment: 'production', pcsType: 'SPX' })
   const bookDelhiveryLtlLastMileAppointment = useBookDelhiveryLtlLastMileAppointment()
   const cancelDelhiveryLtlPickupRequest = useCancelDelhiveryLtlPickupRequest()
   const cancelDelhiveryLtlShipment = useCancelDelhiveryLtlShipment()
@@ -90,6 +93,10 @@ const CourierCredentials = () => {
       setFlightGoStatus(status)
       setFlightGoCredentials((current) => ({ ...current, ...(status.settings || {}) }))
     }).catch(() => setFlightGoStatus({ configured: false }))
+    fetchDillikingStatus().then((status) => {
+      setDillikingStatus(status)
+      setDillikingCredentials((current) => ({ ...current, ...(status.settings || {}), environment: status.environment || status.settings?.environment || 'production' }))
+    }).catch(() => setDillikingStatus({ configured: false, environment: 'production' }))
   }, [])
 
   const handleSaveSMECredentials = async () => {
@@ -149,6 +156,23 @@ const CourierCredentials = () => {
     } catch (saveError) {
       toast({ title: saveError?.response?.data?.message || 'Could not save FlightGo credentials', status: 'error' })
     } finally { setFlightGoSaving(false) }
+  }
+  const handleSaveDillikingCredentials = async () => {
+    if ((!dillikingCredentials.email.trim() || !dillikingCredentials.password) && !dillikingStatus?.configured) {
+      toast({ title: 'Enter Dilliking production email and password', status: 'warning' }); return
+    }
+    setDillikingSaving(true)
+    try {
+      const response = await saveDillikingCredentials(dillikingCredentials)
+      const status = await fetchDillikingStatus()
+      setDillikingStatus(status)
+      queryClient.invalidateQueries({ queryKey: ['serviceProviders'] })
+      queryClient.invalidateQueries({ queryKey: ['couriers'] })
+      setDillikingCredentials((current) => ({ ...current, password: '', ...(status.settings || {}), environment: status.environment || 'production' }))
+      toast({ title: response?.message || 'Dilliking production credentials verified and saved', status: 'success' })
+    } catch (saveError) {
+      toast({ title: saveError?.response?.data?.message || 'Could not save Dilliking credentials', status: 'error' })
+    } finally { setDillikingSaving(false) }
   }
   const loginDelhiveryLtl = useLoginDelhiveryLtl()
   const logoutDelhiveryLtl = useLogoutDelhiveryLtl()
@@ -1479,6 +1503,24 @@ const CourierCredentials = () => {
             </Flex>
             {flightGoStatus?.note && <Text fontSize="xs" color="gray.600">{flightGoStatus.note}</Text>}
             <Flex gap={3} flexWrap="wrap"><Button colorScheme="blue" onClick={handleSaveFlightGoCredentials} isLoading={flightGoSaving}>Verify &amp; Save FlightGo Credentials</Button><Button as={RouterLink} to="/admin/pricing/b2c" variant="outline">B2C Rates</Button><Button as={RouterLink} to="/admin/pricing/b2b" variant="outline">B2B Rates</Button></Flex>
+          </VStack>
+        </Box>
+        <Box borderWidth="1px" borderRadius="lg" p={5} minW="320px" flex="1" maxW="520px" mb={{ base: 4, md: 0 }}>
+          <VStack spacing={3} align="stretch">
+            <Flex justify="space-between" align="center">
+              <Text fontWeight="semibold">Dilliking International</Text>
+              <Badge colorScheme={dillikingStatus?.bookingReady ? 'green' : dillikingStatus?.configured ? 'orange' : 'gray'}>{dillikingStatus?.status || 'Setup needed'}</Badge>
+            </Flex>
+            <Text fontSize="sm" color="gray.600">Production AWB booking and tracking use api.dilliking.com. Credentials and seller KYC documents stay on the PunjabShip server.</Text>
+            <FormControl><FormLabel>Production login email</FormLabel><Input type="email" autoComplete="off" value={dillikingCredentials.email} onChange={(event) => setDillikingCredentials((current) => ({ ...current, email: event.target.value }))} placeholder={dillikingStatus?.configured ? 'Configured; enter only to change' : 'Dilliking production email'} /></FormControl>
+            <FormControl><FormLabel>Password {dillikingStatus?.configured ? '(blank keeps saved password)' : ''}</FormLabel><Input type="password" autoComplete="new-password" value={dillikingCredentials.password} onChange={(event) => setDillikingCredentials((current) => ({ ...current, password: event.target.value }))} placeholder={dillikingStatus?.configured ? 'Saved securely; never displayed' : 'Dilliking production password'} /></FormControl>
+            <Flex gap={3} flexWrap="wrap">
+              <FormControl flex="1"><FormLabel>Package type</FormLabel><Select value={dillikingCredentials.pcsType} onChange={(event) => setDillikingCredentials((current) => ({ ...current, pcsType: event.target.value }))}><option value="SPX">SPX (parcel)</option><option value="DOX">DOX (documents)</option></Select></FormControl>
+              <FormControl flex="1"><FormLabel>Environment</FormLabel><Select value={dillikingCredentials.environment} onChange={(event) => setDillikingCredentials((current) => ({ ...current, environment: event.target.value }))}><option value="production">Production</option><option value="sandbox">Sandbox (bookings disabled)</option></Select></FormControl>
+            </Flex>
+            <Text fontSize="xs" color="gray.600">Dilliking does not document a rate API. PunjabShip B2C/B2B starter rates are editable estimates; AWB creation and tracking are live after production credentials are verified.</Text>
+            {dillikingStatus?.note && <Text fontSize="xs" color="gray.600">{dillikingStatus.note}</Text>}
+            <Flex gap={3} flexWrap="wrap"><Button colorScheme="blue" onClick={handleSaveDillikingCredentials} isLoading={dillikingSaving}>Verify &amp; Save Dilliking Credentials</Button><Button as={RouterLink} to="/admin/pricing/b2c" variant="outline">B2C Rates</Button><Button as={RouterLink} to="/admin/pricing/b2b" variant="outline">B2B Rates</Button></Flex>
           </VStack>
         </Box>
         <Box

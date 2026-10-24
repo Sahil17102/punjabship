@@ -109,6 +109,7 @@ export type B2CFormData = {
     | 'smecourier'
     | 'skylink'
     | 'flightgo'
+    | 'dilliking'
   pickupAddress?: string
   pickupGSTNumber?: string
   pickupLocationPOCName?: string
@@ -313,13 +314,13 @@ export default function B2COrderFormSteps({ onClose }: { onClose?: () => void })
         return
       }
 
-      if (data.integrationType === 'skylink' && !String(data.addressLine2 || '').trim()) {
+      if (['skylink', 'dilliking'].includes(String(data.integrationType)) && !String(data.addressLine2 || '').trim()) {
         methods.setError('addressLine2', {
           type: 'manual',
-          message: 'Address Line 2 is required for Skylink international shipments.',
+          message: 'Address Line 2 is required for this international courier.',
         })
         setCurrentStep(0)
-        toast.open({ message: 'Enter Address Line 2 before booking with Skylink.', severity: 'error' })
+        toast.open({ message: 'Enter Address Line 2 before booking this international shipment.', severity: 'error' })
         return
       }
 
