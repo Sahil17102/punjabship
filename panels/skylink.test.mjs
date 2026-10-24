@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createSkylinkClient } from './skylink.mjs'
+import { createSkylinkClient, validateSkylinkOrder } from './skylink.mjs'
 
 const canadaRate = {
   code: 'UPS EXPRESS SAVER',
@@ -130,7 +130,7 @@ test('sends invoice type 1 and all required NONDOX invoice item fields in the bo
     payment_type: 'prepaid',
     consignee: {
       name: 'Test Receiver', phone: '+10000000000', email: 'receiver@example.invalid',
-      address: '1 Main St', city: 'Avondale', state: 'NL', country_code: 'CA', pincode: 'A0A1B0',
+      address: '1 Main St', address_line_2: 'Unit 4', city: 'Avondale', state: 'NL', country_code: 'CA', pincode: 'A0A1B0',
     },
     pickup: {
       name: 'Test Sender', warehouse_name: 'Test Warehouse', phone: '+910000000000',
@@ -156,7 +156,34 @@ test('sends invoice type 1 and all required NONDOX invoice item fields in the bo
   assert.equal(payload.free_form_invoice_type_id, 1)
   assert.equal(payload.free_form_currency, 'INR')
   assert.equal(payload.free_form_note_master_code, 'COMMERCIAL')
+  assert.equal(payload.consignee_address_line_1, '1 Main St')
+  assert.equal(payload.consignee_address_line_2, 'Unit 4')
   assert.deepEqual(Object.keys(item).sort(), requiredItemFields.sort())
   assert.equal(item.total, '1000.00')
   assert.equal(item.hscode, '62032200')
+})
+
+test('requires recipient address line 2 before a Skylink international booking', () => {
+  const order = {
+    order_number: 'TEST-CA-ORDER', order_amount: 1000, package_weight: 500,
+    package_length: 10, package_breadth: 10, package_height: 10,
+    invoice_no: 'INV-100', invoice_date: '2026-10-25',
+    consignee: {
+      name: 'Test Receiver', phone: '+10000000000', email: 'receiver@example.invalid',
+      address: '1 Main St', city: 'Avondale', state: 'NL', country_code: 'CA', pincode: 'A0A1B0',
+    },
+    pickup: {
+      name: 'Test Sender', warehouse_name: 'Test Warehouse', phone: '+910000000000',
+      address: '1 Test Road', city: 'Narwana', state: 'Haryana', country_code: 'IN',
+      pincode: '126116', gst_number: 'TESTGST',
+    },
+    __seller: { email: 'seller@example.invalid', company_name: 'Test Company', gstin: 'TESTGST' },
+    order_items: [{ name: 'Test garment', hsn: '62032200', qty: 1, price: 1000, amount: 1000, unit: 'PCS' }],
+  }
+
+  assert.ok(validateSkylinkOrder(order, { invoiceTypeId: '1' }).includes('receiver address line 2'))
+  assert.deepEqual(validateSkylinkOrder({
+    ...order,
+    consignee: { ...order.consignee, address_line_2: 'Unit 4' },
+  }, { invoiceTypeId: '1' }), [])
 })

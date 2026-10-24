@@ -35,7 +35,8 @@ export const validateSkylinkOrder = (order, settings) => {
   const required = [
     ['tracking/order reference', order?.order_number], ['receiver name', consignee.name],
     ['receiver contact number', consignee.phone], ['receiver email', consignee.email],
-    ['receiver address', consignee.address || consignee.address_line_1], ['receiver city', consignee.city],
+    ['receiver address', consignee.address || consignee.address_line_1],
+    ['receiver address line 2', consignee.address_line_2 || consignee.address_2], ['receiver city', consignee.city],
     ['receiver country', consignee.country_code || order?.country_code], ['receiver postal code', consignee.pincode],
     ['sender name', pickup.name || pickup.warehouse_name], ['sender company', pickup.warehouse_name || order?.__seller?.company_name],
     ['sender contact number', pickup.phone], ['sender email', order?.__seller?.email],

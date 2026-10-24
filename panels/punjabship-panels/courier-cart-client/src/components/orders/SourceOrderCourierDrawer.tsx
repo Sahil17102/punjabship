@@ -141,17 +141,10 @@ const normalizeCourierPhone = (value: unknown) => {
 }
 
 const buildCourierReadyAddress = (order: Record<string, any> | null) => {
-  const structuredParts = [
-    order?.address_line_1,
-    order?.address_line_2,
-    order?.address_landmark,
-    order?.address_locality,
-  ]
-    .map(normalizeAddressPart)
-    .filter(Boolean)
-  const parts = structuredParts.length
-    ? structuredParts
-    : [order?.address, order?.city].map(normalizeAddressPart).filter(Boolean)
+  const addressLine1 = normalizeAddressPart(order?.address_line_1)
+  const parts = addressLine1
+    ? [addressLine1]
+    : [order?.address].map(normalizeAddressPart).filter(Boolean)
 
   const uniqueParts = parts.filter((part, index) => {
     const normalizedPart = part.toLowerCase()
@@ -192,6 +185,7 @@ const buildDefaultValues = (order: Record<string, any> | null): B2CFormData => {
       : order?.buyer_phone || '',
     buyerEmail: order?.buyer_email || '',
     address: buildCourierReadyAddress(order),
+    addressLine2: order?.address_line_2 || order?.address_2 || '',
     addressLocality: order?.address_locality || order?.address_landmark || '',
     pincode: order?.pincode || '',
     city: order?.city || '',
@@ -271,6 +265,14 @@ export default function SourceOrderCourierDrawer({
         type: 'manual',
         message: 'Please select a courier partner',
       })
+      return
+    }
+    if (data.integrationType === 'skylink' && !String(data.addressLine2 || '').trim()) {
+      setError('addressLine2', {
+        type: 'manual',
+        message: 'Address Line 2 is required for Skylink international shipments.',
+      })
+      toast.open({ message: 'Enter Address Line 2 before booking with Skylink.', severity: 'error' })
       return
     }
 
@@ -381,7 +383,10 @@ export default function SourceOrderCourierDrawer({
           email: data.buyerEmail,
           address: data.address,
           address_line_1: data.address,
+          address_2: data.addressLine2 || undefined,
+          address_line_2: data.addressLine2 || undefined,
           locality: data.addressLocality || undefined,
+          landmark: data.addressLocality || undefined,
           city: data.city,
           state: data.state,
           pincode: data.pincode,

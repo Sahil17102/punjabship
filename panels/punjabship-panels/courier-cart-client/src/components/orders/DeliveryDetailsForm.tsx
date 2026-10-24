@@ -97,6 +97,7 @@ const DeliveryDetailsForm = ({ type = 'b2c' }: { type?: FormType }) => {
     { name: 'city', label: 'City' },
     { name: 'state', label: 'State' },
     { name: 'address', label: 'Address' },
+    { name: 'addressLine2', label: 'Address Line 2' },
     { name: 'addressLocality', label: 'Locality / Landmark' },
     ...(type === 'b2b'
       ? [
@@ -120,6 +121,7 @@ const DeliveryDetailsForm = ({ type = 'b2c' }: { type?: FormType }) => {
         const isOptionalField =
           (fieldItem.name === 'buyerEmail' && type === 'b2b') ||
           fieldItem.name === 'gstin' ||
+          fieldItem.name === 'addressLine2' ||
           fieldItem.name === 'addressLocality'
         const isAddressField = fieldItem.name === 'address'
 

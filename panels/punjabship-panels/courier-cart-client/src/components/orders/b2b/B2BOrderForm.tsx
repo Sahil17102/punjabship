@@ -43,6 +43,7 @@ export type B2BFormData = {
   buyerPhone: string
   buyerEmail: string
   address: string
+  addressLine2?: string
   pincode: string
   companyName: string
   gstin?: string
@@ -260,6 +261,8 @@ export default function B2BOrderForm({ onClose }: { onClose?: () => void }) {
           phone: data.buyerPhone,
           email: data.buyerEmail,
           address: data.address,
+          address_2: data.addressLine2 || undefined,
+          address_line_2: data.addressLine2 || undefined,
           city: data.city,
           state: data.state,
           pincode: data.pincode,

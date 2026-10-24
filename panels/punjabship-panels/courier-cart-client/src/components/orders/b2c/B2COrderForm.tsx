@@ -52,6 +52,7 @@ export type B2CFormData = {
   buyerPhone: string
   buyerEmail: string
   address: string
+  addressLine2?: string
   addressLocality?: string
   pincode: string
   city: string
@@ -311,6 +312,16 @@ export default function B2COrderFormSteps({ onClose }: { onClose?: () => void })
         return
       }
 
+      if (data.integrationType === 'skylink' && !String(data.addressLine2 || '').trim()) {
+        methods.setError('addressLine2', {
+          type: 'manual',
+          message: 'Address Line 2 is required for Skylink international shipments.',
+        })
+        setCurrentStep(0)
+        toast.open({ message: 'Enter Address Line 2 before booking with Skylink.', severity: 'error' })
+        return
+      }
+
       let amazonRequestToken = data.amazonRequestToken ?? undefined
       let amazonRateId = data.amazonRateId ?? undefined
       let amazonServiceId = data.amazonServiceId ?? undefined
@@ -420,7 +431,10 @@ export default function B2COrderFormSteps({ onClose }: { onClose?: () => void })
           name: data.buyerName,
           address: data.address,
           address_line_1: data.address,
+          address_2: data.addressLine2 || undefined,
+          address_line_2: data.addressLine2 || undefined,
           locality: data.addressLocality || undefined,
+          landmark: data.addressLocality || undefined,
           city: data.city,
           state: data.state,
           pincode: data.pincode,

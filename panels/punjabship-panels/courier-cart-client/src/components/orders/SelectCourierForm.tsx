@@ -47,6 +47,7 @@ export const SelectCourierForm = ({ shipment_type }: { shipment_type: 'b2b' | 'b
   const buyerName = watchFormValue('buyerName') ?? ''
   const buyerPhone = watchFormValue('buyerPhone') ?? ''
   const deliveryAddressLine = watch('address') ?? ''
+  const deliveryAddressLine2 = watchFormValue('addressLine2') ?? ''
   const deliveryCity = watch('city') ?? ''
   const deliveryState = watch('state') ?? ''
   const deliveryCountryCode = String(watch('country') || 'IN').toUpperCase()
@@ -712,7 +713,7 @@ export const SelectCourierForm = ({ shipment_type }: { shipment_type: 'b2b' | 'b
               <Stack direction="row" spacing={1.2} alignItems="flex-start">
                 <BiMap color={ACCENT} size={18} />
                 <Typography sx={{ color: TEXT_SECONDARY, fontSize: 12 }}>
-                  {deliveryAddressLine || '-'}, {deliveryCity || '-'}, {deliveryState || '-'} -{' '}
+                  {[deliveryAddressLine, deliveryAddressLine2].filter(Boolean).join(', ') || '-'}, {deliveryCity || '-'}, {deliveryState || '-'} -{' '}
                   {deliveryPincode || '-'}
                 </Typography>
               </Stack>

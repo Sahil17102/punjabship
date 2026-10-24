@@ -66,17 +66,10 @@ const getProductTotals = (products: Product[], fallback: unknown) => {
 const normalizeAddressPart = (value: unknown) => String(value || '').trim().replace(/\s+/g, ' ')
 
 const buildDeliveryAddress = (order: Record<string, any>) => {
-  const structuredParts = [
-    order?.address_line_1,
-    order?.address_line_2,
-    order?.address_landmark,
-    order?.address_locality,
-  ]
-    .map(normalizeAddressPart)
-    .filter(Boolean)
-  const parts = structuredParts.length
-    ? structuredParts
-    : [order?.address, order?.city].map(normalizeAddressPart).filter(Boolean)
+  const addressLine1 = normalizeAddressPart(order?.address_line_1)
+  const parts = addressLine1
+    ? [addressLine1]
+    : [order?.address].map(normalizeAddressPart).filter(Boolean)
 
   return parts.filter((part, index) => {
     const normalizedPart = part.toLowerCase()
@@ -103,6 +96,7 @@ export const buildB2CCloneFormValues = (order: Record<string, any>): Partial<B2C
     buyerPhone: normalizePhone(order?.buyer_phone),
     buyerEmail: order?.buyer_email || '',
     address: buildDeliveryAddress(order),
+    addressLine2: order?.address_line_2 || order?.address_2 || '',
     addressLocality: order?.address_locality || order?.address_landmark || '',
     pincode: order?.pincode || '',
     city: order?.city || '',

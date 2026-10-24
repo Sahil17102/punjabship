@@ -200,6 +200,8 @@ export type CreateB2BShipmentParams = {
     phone: string
     email?: string
     address: string
+    address_2?: string
+    address_line_2?: string
     city: string
     state: string
     pincode: string
