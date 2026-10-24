@@ -1339,6 +1339,26 @@ const availableManualQuotes = (body) => {
     return quote ? [quote] : []
   })
 }
+const getSMEIntegrationReadiness = () => {
+  const configured = smeCourier.isConfigured()
+  const confirmedB2CRate = state.shippingRates.some((rate) =>
+    Number(rate.courier_id) === 99002 &&
+    normalizeBusinessType(rate.businessType) === 'b2c' &&
+    !rate.is_demo &&
+    rate.is_active === true,
+  )
+  const bookingReady = configured && confirmedB2CRate
+  return {
+    configured,
+    bookingReady,
+    status: !configured ? 'Setup needed' : bookingReady ? 'B2C booking ready' : 'Rates need confirmation',
+    note: !configured
+      ? 'Add and verify SME Courier credentials.'
+      : bookingReady
+        ? 'B2C live tariff confirmed; B2B values remain demo-only.'
+        : 'Confirm SME Courier’s official B2C tariff in B2C Pricing. B2B values are demo-only.',
+  }
+}
 
 const isManualCourierOrder = (body) => String(`${body?.integration_type || ''} ${body?.courier_partner || ''} ${body?.courier_option_key || ''}`).toLowerCase().includes('manual') || state.manualCouriers.some((item) => Number(item.courierId) === Number(body?.courier_id))
 const validateOrderPayload = (body, type) => {
@@ -1975,7 +1995,8 @@ http.createServer(async (req, res) => {
     }
     if (path === '/api/admin/integrations/smecourier/status' && req.method === 'GET') {
       if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
-      return send({ success: true, data: { provider: 'SME Courier FedEx Direct', configured: smeCourier.isConfigured(), liveBookingEnabled: smeCourier.isConfigured(), service: smeCourier.serviceCode, apiBaseUrl: smeCourier.baseUrl, credentialsSource: 'server_environment', passwordConfigured: smeCourier.isConfigured() } })
+      const readiness = getSMEIntegrationReadiness()
+      return send({ success: true, data: { provider: 'SME Courier FedEx Direct', ...readiness, liveBookingEnabled: readiness.bookingReady, service: smeCourier.serviceCode, apiBaseUrl: smeCourier.baseUrl, credentialsSource: 'server_environment', passwordConfigured: readiness.configured } })
     }
     if (path === '/api/admin/integrations/smecourier/credentials' && req.method === 'POST') {
       if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
@@ -2755,11 +2776,23 @@ http.createServer(async (req, res) => {
       const couriers = state.manualCouriers
         .filter((item) => !businessType || (businessType === 'b2b' ? item.supportsB2b : item.supportsB2c))
         .map((item) => ({ id: item.courierId, courierId: item.courierId, name: item.displayName, displayName: item.displayName, serviceProvider: 'manual', service_provider: 'manual', isEnabled: item.isEnabled, businessType: [item.supportsB2c && 'b2c', item.supportsB2b && 'b2b'].filter(Boolean) }))
-      if (smeCourier.isConfigured() && (!businessType || ['b2b', 'b2c'].includes(businessType))) {
-        couriers.push({ id: 99002, courierId: 99002, name: 'SME Courier FedEx Direct (DEMO)', displayName: 'SME Courier FedEx Direct (DEMO)', serviceProvider: 'smecourier', service_provider: 'smecourier', mode: 'air', isEnabled: true, businessType: ['b2c', 'b2b'], isDemoRateOnly: true })
+      if (!businessType || ['b2b', 'b2c'].includes(businessType)) {
+        const readiness = getSMEIntegrationReadiness()
+        couriers.push({ id: 99002, courierId: 99002, name: 'SME Courier FedEx Direct', displayName: 'SME Courier FedEx Direct', serviceProvider: 'smecourier', service_provider: 'smecourier', mode: 'air', isEnabled: readiness.bookingReady, businessType: ['b2c', 'b2b'], isIntegration: true, isDemoRateOnly: !readiness.bookingReady, integrationConfigured: readiness.configured, integrationReady: readiness.bookingReady, integrationStatus: readiness.status, integrationNote: readiness.note })
       }
       const provider = String(requestUrl.searchParams.get('serviceProvider') || '').trim().toLowerCase()
-      return send({ success: true, data: provider ? couriers.filter((courier) => String(courier.serviceProvider).toLowerCase() === provider) : couriers })
+      const search = String(requestUrl.searchParams.get('search') || '').trim().toLowerCase()
+      const filtered = provider ? couriers.filter((courier) => String(courier.serviceProvider).toLowerCase() === provider) : couriers
+      return send({ success: true, data: search ? filtered.filter((courier) => `${courier.id} ${courier.name} ${courier.serviceProvider}`.toLowerCase().includes(search)) : filtered })
+    }
+    if (path === '/api/couriers/providers' && req.method === 'GET') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const readiness = getSMEIntegrationReadiness()
+      return send({ success: true, data: [{
+        serviceProvider: 'smecourier', displayName: 'SME Courier • FedEx Direct', totalCouriers: 1,
+        enabledCouriers: readiness.bookingReady ? 1 : 0, isEnabled: readiness.bookingReady,
+        statusLabel: readiness.status, managedByIntegration: true, note: readiness.note,
+      }] })
     }
     if (path === '/api/couriers/full-list' || path === '/api/admin/couriers/list' || path === '/api/couriers/list') {
       const businessType = normalizeBusinessType(requestUrl.searchParams.get('businessType') || '')

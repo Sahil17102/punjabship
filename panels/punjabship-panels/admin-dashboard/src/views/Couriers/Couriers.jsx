@@ -56,6 +56,7 @@ const Couriers = () => {
   const { data: couriers = [], isLoading, error } = useCouriers({
     search: debouncedSearch || undefined,
     serviceProvider: filters.serviceProvider || undefined,
+    includeIntegrations: true,
   })
   const createCourier = useCreateCourier()
   const deleteCourier = useDeleteCourier()
@@ -100,7 +101,14 @@ const Couriers = () => {
   ]
 
   const renderers = {
-    isEnabled: (value) => (
+    isEnabled: (value, row) => row.isIntegration ? (
+      <VStack align="start" spacing={0}>
+        <Badge colorScheme={row.integrationReady ? 'green' : row.integrationConfigured ? 'orange' : 'gray'}>
+          {row.integrationStatus}
+        </Badge>
+        <Text fontSize="xs" color="gray.600">{row.integrationNote}</Text>
+      </VStack>
+    ) : (
       <Text fontWeight="semibold" color={value ? 'green.500' : 'red.500'}>
         {value ? 'Enabled' : 'Disabled'}
       </Text>
@@ -182,8 +190,8 @@ const Couriers = () => {
                 transform: 'scale(0.95)',
               }}
               opacity={isB2CActive ? 1 : 0.5}
-              onClick={() => handleToggle('b2c')}
-              disabled={updateCourierStatus.isPending}
+              onClick={() => !row.isIntegration && handleToggle('b2c')}
+              disabled={row.isIntegration || updateCourierStatus.isPending}
             >
               B2C
             </Badge>
@@ -215,8 +223,8 @@ const Couriers = () => {
                 transform: 'scale(0.95)',
               }}
               opacity={isB2BActive ? 1 : 0.5}
-              onClick={() => handleToggle('b2b')}
-              disabled={updateCourierStatus.isPending}
+              onClick={() => !row.isIntegration && handleToggle('b2b')}
+              disabled={row.isIntegration || updateCourierStatus.isPending}
             >
               B2B
             </Badge>
@@ -280,7 +288,12 @@ const Couriers = () => {
       <Box bg="white" borderWidth="1px" borderRadius="lg" p={5}>
         <Flex justify="space-between" align="center" mb={3}>
           <Box><Text fontSize="lg" fontWeight="700">SME Courier • FedEx Direct</Text><Text fontSize="sm" color="gray.600">Credentials are checked with SME Courier and stored on the PunjabShip server.</Text></Box>
-          <Badge colorScheme={smeStatus?.configured ? 'green' : 'orange'}>{smeStatus?.configured ? 'Connected' : 'Not configured'}</Badge>
+          <VStack align="end" spacing={1}>
+            <Badge colorScheme={smeStatus?.bookingReady ? 'green' : smeStatus?.configured ? 'orange' : 'gray'}>
+              {smeStatus?.status || (smeStatus?.configured ? 'Credentials connected' : 'Setup needed')}
+            </Badge>
+            {smeStatus?.note && <Text fontSize="xs" color="gray.600" maxW="340px" textAlign="right">{smeStatus.note}</Text>}
+          </VStack>
         </Flex>
         <Flex direction={{ base: 'column', md: 'row' }} gap={3} align="end">
           <FormControl><FormLabel>SME username</FormLabel><Input autoComplete="off" value={smeCredentials.username} onChange={(e) => setSmeCredentials({ ...smeCredentials, username: e.target.value })} placeholder={smeStatus?.configured ? 'Enter username to update' : 'Enter SME Courier username'} /></FormControl>
@@ -378,7 +391,9 @@ const Couriers = () => {
         loading={isLoading}
         paginated={false}
         renderActions={(row) => (
-          <HStack spacing={3} align="center">
+          row.isIntegration ? (
+            <Text fontSize="sm" color="gray.600">Managed by integration settings</Text>
+          ) : <HStack spacing={3} align="center">
             <Switch
               colorScheme="green"
               isChecked={row.isEnabled}

@@ -48,7 +48,7 @@ const ServiceProviders = () => {
         Service Providers
       </Text>
       <Text fontSize="sm" color="gray.500">
-        Manage enabled courier providers for Delhivery B2C and Velocity Shipping.
+        View courier connections and booking readiness. SME Courier requires a confirmed B2C tariff before live booking is enabled.
       </Text>
       <Table variant="simple">
         <Thead>
@@ -70,22 +70,27 @@ const ServiceProviders = () => {
           ) : (
             providers.map((p) => (
               <Tr key={p.serviceProvider}>
-                <Td textTransform="capitalize">{p.serviceProvider}</Td>
+                <Td>{p.displayName || p.serviceProvider}</Td>
                 <Td isNumeric>{p.totalCouriers}</Td>
                 <Td isNumeric>{p.enabledCouriers}</Td>
                 <Td>
-                  <Text fontWeight="semibold" color={p.isEnabled ? 'green.500' : 'red.500'}>
-                    {p.isEnabled ? 'Enabled' : 'Disabled'}
+                  <Text fontWeight="semibold" color={p.isEnabled ? 'green.500' : p.managedByIntegration ? 'orange.500' : 'red.500'}>
+                    {p.statusLabel || (p.isEnabled ? 'Enabled' : 'Disabled')}
                   </Text>
+                  {p.note && <Text fontSize="xs" color="gray.600" mt={1}>{p.note}</Text>}
                 </Td>
                 <Td>
                   <HStack justify="flex-end">
-                    <Switch
-                      colorScheme="green"
-                      isChecked={p.isEnabled}
-                      isDisabled={updateStatus.isPending}
-                      onChange={() => handleToggle(p)}
-                    />
+                    {p.managedByIntegration ? (
+                      <Text fontSize="xs" color="gray.500">Managed by credentials and rates</Text>
+                    ) : (
+                      <Switch
+                        colorScheme="green"
+                        isChecked={p.isEnabled}
+                        isDisabled={updateStatus.isPending}
+                        onChange={() => handleToggle(p)}
+                      />
+                    )}
                   </HStack>
                 </Td>
               </Tr>
