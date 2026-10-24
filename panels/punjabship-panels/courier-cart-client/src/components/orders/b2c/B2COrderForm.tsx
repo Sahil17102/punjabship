@@ -104,6 +104,7 @@ export type B2CFormData = {
     | 'shipglobal'
     | 'smecourier'
   pickupAddress?: string
+  pickupGSTNumber?: string
   pickupLocationPOCName?: string
   courierPartnerId: string
   courierOptionKey?: string
@@ -427,6 +428,7 @@ export default function B2COrderFormSteps({ onClose }: { onClose?: () => void })
         pickup: {
           warehouse_name: data?.pickupLocationName ?? '',
           address: data?.pickupAddress ?? '',
+          gst_number: data?.pickupGSTNumber ?? '',
           name: data?.pickupLocationPOCName ?? '',
           phone: data?.pickupLocationPOCPhone ?? '',
           city: data?.pickupCity ?? '',

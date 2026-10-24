@@ -97,6 +97,7 @@ export type B2BFormData = {
   pickupLocationPincode?: string
   pickupLocationName?: string
   pickupAddress?: string
+  pickupGSTNumber?: string
   pickupLocationPOCName?: string
   pickupLocationPOCPhone?: string
   pickupCity?: string

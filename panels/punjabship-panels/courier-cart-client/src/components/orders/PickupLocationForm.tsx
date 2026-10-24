@@ -56,6 +56,7 @@ const PickupLocationForm = ({ compact = false }: { compact?: boolean }) => {
     setValue('pickupLocationPOCName', location.pickup?.contactName)
     setValue('pickupLocationPOCPhone', location.pickup?.contactPhone)
     setValue('pickupAddress', location.pickup?.addressLine1)
+    setValue('pickupGSTNumber', location.pickup?.gstNumber)
     setValue('pickupCity', location.pickup?.city)
     setValue('pickupState', location.pickup?.state)
 

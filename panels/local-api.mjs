@@ -3077,9 +3077,24 @@ http.createServer(async (req, res) => {
         const liveRate = state.shippingRates.find((rate) => Number(rate.courier_id) === 99002 && normalizeBusinessType(rate.businessType) === 'b2c' && !rate.is_demo && rate.is_active === true && (!seller.currentB2CPlanId || String(rate.plan_id) === String(seller.currentB2CPlanId)))
         const estimatedFreight = liveRate && destinationZone ? calculateB2cFreight(liveRate, destinationZone.name, Math.max(Number(normalizedBody.package_weight || 0) / 1000, Number(liveRate.min_weight || 0.5))) : null
         if (!liveRate || !Number.isFinite(estimatedFreight) || estimatedFreight <= 0) return send({ success: false, message: 'An active SME B2C rate is required for this destination before booking.' }, 409)
-        const providerPayload = mapPunjabShipOrderToSME({ ...normalizedBody, __seller: seller }, smeCourier.defaults)
+        const selectedPickup = (state.pickupAddresses[seller.id] || []).find((address) => String(address.pickupId || address.id) === String(normalizedBody.pickup_location_id || ''))
+        const providerOrder = {
+          ...normalizedBody,
+          pickup: {
+            ...(selectedPickup?.pickup || {}),
+            ...(normalizedBody.pickup || {}),
+            gst_number: normalizedBody.pickup?.gst_number || normalizedBody.pickup?.gstNumber || selectedPickup?.pickup?.gstNumber || selectedPickup?.pickup?.gst_number || '',
+          },
+          __seller: seller,
+        }
+        const providerPayload = mapPunjabShipOrderToSME(providerOrder, smeCourier.defaults)
         const missing = validateSMEOrder(providerPayload)
-        if (missing.length) return send({ success: false, message: `Missing SME Courier fields: ${missing.join(', ')}`, missingFields: missing }, 400)
+        if (missing.length) {
+          const message = missing.includes('DocValue')
+            ? 'Add the sender GSTIN or other accepted document number to the selected pickup address before booking this SME Courier shipment.'
+            : `Missing SME Courier fields: ${missing.join(', ')}`
+          return send({ success: false, message, missingFields: missing }, 400)
+        }
         const providerResult = await smeCourier.createShipment(providerPayload)
         const shipmentInfo = extractSMEShipment(providerResult.data)
         const now = new Date().toISOString()
