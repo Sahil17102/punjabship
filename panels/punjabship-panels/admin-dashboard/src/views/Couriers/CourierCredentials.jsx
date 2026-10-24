@@ -59,7 +59,7 @@ const CourierCredentials = () => {
   const [smeSaving, setSmeSaving] = useState(false)
   const [skylinkStatus, setSkylinkStatus] = useState(null)
   const [skylinkSaving, setSkylinkSaving] = useState(false)
-  const [skylinkCredentials, setSkylinkCredentials] = useState({ email: '', password: '', rateUsername: '', ratePassword: '', customerCode: '', companyId: '3', rateOriginCode: '', productCode: 'NONDOX', invoiceTypeId: '', termsOfTrade: 'DDU', invoiceNoteCode: 'COMMERCIAL' })
+  const [skylinkCredentials, setSkylinkCredentials] = useState({ email: '', password: '', rateUsername: '', ratePassword: '', customerCode: '', companyId: '3', rateOriginCode: '', productCode: 'NONDOX', invoiceTypeId: '1', termsOfTrade: 'DDU', invoiceNoteCode: 'COMMERCIAL' })
   const bookDelhiveryLtlLastMileAppointment = useBookDelhiveryLtlLastMileAppointment()
   const cancelDelhiveryLtlPickupRequest = useCancelDelhiveryLtlPickupRequest()
   const cancelDelhiveryLtlShipment = useCancelDelhiveryLtlShipment()
@@ -1403,8 +1403,11 @@ const CourierCredentials = () => {
                 </Select>
               </FormControl>
               <FormControl flex="1" minW="140px">
-                <FormLabel>Free-form invoice type ID</FormLabel>
-                <Input type="number" min="1" value={skylinkCredentials.invoiceTypeId} onChange={(event) => setSkylinkCredentials((current) => ({ ...current, invoiceTypeId: event.target.value }))} placeholder="Required by Skylink for NONDOX" />
+                <FormLabel>Free-form invoice type</FormLabel>
+                <Select value={skylinkCredentials.invoiceTypeId || '1'} onChange={(event) => setSkylinkCredentials((current) => ({ ...current, invoiceTypeId: event.target.value }))}>
+                  <option value="1">INVOICE (standard commercial invoice)</option>
+                  <option value="2">PROFORMA INVOICE</option>
+                </Select>
               </FormControl>
             </Flex>
             <Flex gap={3} flexWrap="wrap">
