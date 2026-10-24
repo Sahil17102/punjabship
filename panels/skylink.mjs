@@ -176,20 +176,37 @@ export const createSkylinkClient = ({
     return data.data.flatMap((rate) => {
       const serviceCode = text(rate?.internal_api_service_code || rate?.code)
       if (!serviceCode || !validNumber(rate?.total ?? rate?.rate)) return []
+      const freight = amount(rate.sub_total ?? rate.rate)
+      const otherCharges = amount(rate.other_charges) + amount(rate.fsc)
+      const codCharges = amount(rate.cod_charges)
+      const total = amount(rate.total ?? rate.rate)
+      const gstAmount = Math.max(0, total - freight - codCharges)
+      const expectedTotal = Number((freight + otherCharges + codCharges + gstAmount).toFixed(2))
+      const priceBreakdownMatches = Math.abs(expectedTotal - total) <= 0.02
+      const isCodOrder = text(order?.payment_type || order?.paymentType || order?.order_type).toLowerCase() === 'cod'
+      const bookingBlockedReasons = []
+      if (!bookingReady()) bookingBlockedReasons.push('Enter the Skylink free-form invoice type ID in admin courier credentials before booking.')
+      if (isCodOrder) bookingBlockedReasons.push('Skylink booking does not send COD/payment collection details to the carrier. Change this international order to prepaid or use a carrier that supports COD.')
+      if (!priceBreakdownMatches) bookingBlockedReasons.push('Skylink quote surcharge fields do not reconcile with its payable total. Confirm the surcharge treatment with Skylink before booking.')
+      const canBookQuote = bookingReady() && !isCodOrder && priceBreakdownMatches
       const quoteId = randomUUID()
-      quoteCache.set(quoteId, { rate, serviceCode, order: { originCode, destinationCode, weightKg, pieces }, expiresAt: now + 15 * 60 * 1000 })
+      quoteCache.set(quoteId, {
+        rate, serviceCode, canBook: canBookQuote,
+        bookingBlockedReason: bookingBlockedReasons.join(' '),
+        order: { originCode, destinationCode, weightKg, pieces }, expiresAt: now + 15 * 60 * 1000,
+      })
       return [{
         id: 99003, courier_id: 99003, name: text(rate.vendor_name || rate.code || serviceCode),
         displayName: text(rate.vendor_name || rate.code || serviceCode), integration_type: 'skylink',
         serviceProvider: 'skylink', service_provider: 'skylink', courier_option_key: `skylink:${quoteId}`,
         skylink_quote_id: quoteId, service: serviceCode, service_code: serviceCode, mode: 'air',
-        rate: amount(rate.sub_total ?? rate.rate), courier_cost_estimate: amount(rate.total ?? rate.rate),
-        total_charges_without_gst: amount(rate.sub_total ?? rate.rate), total_charges_with_gst: amount(rate.total ?? rate.rate),
-        total_charges: amount(rate.total ?? rate.rate), wallet_debit_amount: amount(rate.total ?? rate.rate),
-        gst_percent: amount(rate.gst_per) || 18, gst_amount: Math.max(0, amount(rate.total ?? rate.rate) - amount(rate.sub_total ?? rate.rate)),
-        other_charges: amount(rate.other_charges) + amount(rate.fsc), booking_available: bookingReady(), can_book: bookingReady(),
-        booking_blocked_reason: bookingReady() ? null : 'Enter the Skylink free-form invoice type ID in admin courier credentials before booking.',
-        provider_serviceability: { provider: 'Skylink', service: serviceCode, booking_available: bookingReady(), can_book: bookingReady() },
+        rate: freight, courier_cost_estimate: total,
+        total_charges_without_gst: Number((freight + codCharges + otherCharges).toFixed(2)), total_charges_with_gst: total,
+        total_charges: Number((freight + codCharges + otherCharges).toFixed(2)), wallet_debit_amount: total,
+        cod_charges: codCharges, gst_percent: amount(rate.gst_per) || 18, gst_amount: gstAmount,
+        other_charges: otherCharges, booking_available: canBookQuote, can_book: canBookQuote,
+        booking_blocked_reason: bookingBlockedReasons.join(' ') || null,
+        provider_serviceability: { provider: 'Skylink', service: serviceCode, booking_available: canBookQuote, can_book: canBookQuote, booking_blocked_reason: bookingBlockedReasons.join(' ') || null },
         approxZone: { code: destinationCode, name: destinationCode },
       }]
     })
@@ -198,6 +215,7 @@ export const createSkylinkClient = ({
   const resolveQuote = (quoteId, order) => {
     const quote = quoteCache.get(text(quoteId))
     if (!quote || quote.expiresAt <= Date.now()) throw Object.assign(new Error('Skylink quote expired. Refresh courier rates and select a service again.'), { statusCode: 409 })
+    if (!quote.canBook) throw Object.assign(new Error(quote.bookingBlockedReason || 'This Skylink quote is not safe to book.'), { statusCode: 409 })
     const originCode = first(settings.rateOriginCode, order?.pickup?.pincode, order?.origin)
     const destinationCode = first(order?.consignee?.country_code, order?.country_code, 'IN').toUpperCase()
     const weightKg = amount(order?.package_weight ?? order?.weight) / 1000
