@@ -4,6 +4,21 @@ import { dirname, resolve } from 'node:path'
 const DEFAULT_BASE_URL = 'https://portal.smecourier.in'
 const text = (value) => String(value ?? '').trim()
 const first = (...values) => values.find((value) => text(value))
+const addressLines = (primary, secondary, tertiary) => {
+  const remaining = text(primary).split(/\r?\n/).map(text).filter(Boolean)
+  return {
+    line1: first(remaining.shift(), primary),
+    line2: first(secondary, remaining.shift()),
+    line3: first(tertiary, remaining.shift()),
+  }
+}
+const CANADA_PROVINCE_CODES = new Map([
+  ['alberta', 'AB'], ['british columbia', 'BC'], ['manitoba', 'MB'], ['new brunswick', 'NB'],
+  ['newfoundland and labrador', 'NL'], ['northwest territories', 'NT'], ['nova scotia', 'NS'],
+  ['nunavut', 'NU'], ['ontario', 'ON'], ['prince edward island', 'PE'], ['quebec', 'QC'],
+  ['saskatchewan', 'SK'], ['yukon', 'YT'],
+])
+const canadaProvinceCode = (value) => CANADA_PROVINCE_CODES.get(text(value).toLowerCase()) || text(value).toUpperCase()
 
 // On the VPS, keep provider secrets in PunjabShip's shared folder so they
 // survive immutable release swaps without storing secrets in PM2's global dump.
@@ -23,6 +38,13 @@ export const mapPunjabShipOrderToSME = (order, defaults = {}) => {
   const pickup = order?.pickup || {}
   const consignee = order?.consignee || {}
   const seller = order?.__seller || {}
+  const consigneeCountryCode = text(consignee.country_code || order.country_code).toUpperCase()
+  const consigneeAddress = addressLines(
+    first(consignee.address_line_1, consignee.address),
+    first(consignee.address_line_2, consignee.address_2),
+    consignee.landmark,
+  )
+  const consignorAddress = addressLines(pickup.address, pickup.address_2, pickup.landmark)
   const items = Array.isArray(order?.order_items) ? order.order_items : []
   const requestedShipmentType = [order?.provider_shipment_type, order?.ShipmentType, order?.shipmentType, order?.shipment_type]
     .map(text)
@@ -41,20 +63,20 @@ export const mapPunjabShipOrderToSME = (order, defaults = {}) => {
     TrackingNo: text(order.order_number),
     ConsigneeName: first(consignee.company_name, consignee.name),
     ConsigneeContactPerson: first(consignee.name, consignee.company_name),
-    ConsigneeAddressLine1: first(consignee.address_line_1, consignee.address),
-    ConsigneeAddressLine2: first(consignee.address_line_2, consignee.address_2),
-    ConsigneeAddressLine3: text(consignee.landmark),
+    ConsigneeAddressLine1: consigneeAddress.line1,
+    ConsigneeAddressLine2: consigneeAddress.line2,
+    ConsigneeAddressLine3: consigneeAddress.line3,
     ConsigneeCity: text(consignee.city),
     ConsigneeZipCode: text(consignee.pincode),
-    ConsigneeState: text(consignee.state),
+    ConsigneeState: consigneeCountryCode === 'CA' ? canadaProvinceCode(consignee.state) : text(consignee.state),
     ConsigneePhoneNo: text(consignee.phone),
     ConsigneeEmail: text(consignee.email),
-    ConsigneeCountryCode: text(consignee.country_code || order.country_code).toUpperCase(),
+    ConsigneeCountryCode: consigneeCountryCode,
     ConsignorName: first(pickup.name, pickup.warehouse_name, seller.name),
     ConsignorCompanyName: first(pickup.warehouse_name, seller.company_name, pickup.name),
-    ConsignorAddressLine1: text(pickup.address),
-    ConsignorAddressLine2: text(pickup.address_2),
-    ConsignorAddressLine3: text(pickup.landmark),
+    ConsignorAddressLine1: consignorAddress.line1,
+    ConsignorAddressLine2: consignorAddress.line2,
+    ConsignorAddressLine3: consignorAddress.line3,
     ConsignorCity: text(pickup.city),
     ConsignorPostCode: text(pickup.pincode),
     ConsignorState: text(pickup.state),
