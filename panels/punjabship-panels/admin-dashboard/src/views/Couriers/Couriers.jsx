@@ -44,7 +44,7 @@ import { useDebounce } from 'hooks/useDebounce'
 import { useEffect, useState } from 'react'
 
 import { GenericTable } from 'views/Dashboard/Tables/components/GenericTable'
-import { COURIER_PROVIDER_OPTIONS } from '../../constants/courierProviders'
+import { COURIER_FILTER_PROVIDER_OPTIONS, COURIER_PROVIDER_OPTIONS } from '../../constants/courierProviders'
 
 const Couriers = () => {
   const [filters, setFilters] = useState({
@@ -353,7 +353,7 @@ const Couriers = () => {
             onChange={(e) => setFilters((prev) => ({ ...prev, serviceProvider: e.target.value }))}
             maxW="200px"
           >
-            {COURIER_PROVIDER_OPTIONS.map((provider) => (
+            {COURIER_FILTER_PROVIDER_OPTIONS.map((provider) => (
               <option key={provider.value} value={provider.value}>
                 {provider.label}
               </option>

@@ -78,8 +78,8 @@ const B2BRateMatrix = ({
 
   const { data: couriers = [] } = useCouriers(
     isCourierScopeLocked
-      ? { businessType: 'b2b', serviceProvider: propServiceProvider || undefined }
-      : { businessType: 'b2b' },
+      ? { businessType: 'b2b', serviceProvider: propServiceProvider || undefined, includeIntegrations: true }
+      : { businessType: 'b2b', includeIntegrations: true },
   )
 
   // Handle combined courier-service provider selection

@@ -33,7 +33,7 @@ const B2BPricingContent = () => {
   const [selectedPlanId, setSelectedPlanId] = useState('')
 
   const [selectedCourierKey, setSelectedCourierKey] = useState('')
-  const { data: b2bCouriers = [] } = useCouriers({ businessType: 'b2b' })
+  const { data: b2bCouriers = [] } = useCouriers({ businessType: 'b2b', includeIntegrations: true })
 
   // Default to the Basic B2B plan because Delhivery workbook data is seeded there.
   useEffect(() => {
@@ -119,7 +119,7 @@ const B2BPricingContent = () => {
                     const courierKey = `${courier.id}|${provider}`
                     return (
                       <option key={courierKey} value={courierKey}>
-                        {courier.name}
+                        {courier.name}{courier.isDemoRateOnly ? ' (DEMO — live booking unavailable)' : ''}
                       </option>
                     )
                   })}
@@ -128,6 +128,11 @@ const B2BPricingContent = () => {
             )}
           </HStack>
           <Divider mt={4} />
+          {String(selectedCourier?.serviceProvider || selectedCourier?.service_provider || '').toLowerCase() === 'smecourier' && (
+            <Text mt={3} fontSize="sm" color="orange.700" role="note">
+              SME Courier B2B values are illustrative demo rates only. They are not carrier quotes and cannot be used to book live B2B shipments.
+            </Text>
+          )}
         </Box>
       )}
 

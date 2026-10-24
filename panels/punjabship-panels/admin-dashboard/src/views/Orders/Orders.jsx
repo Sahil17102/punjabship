@@ -178,7 +178,7 @@ const Orders = () => {
             { label: 'Pending', value: stats.pending.toLocaleString() },
             { label: 'Delivered', value: stats.delivered.toLocaleString() },
             { label: 'ShipGlobal', value: shipGlobalStatus?.configured ? 'Connected' : 'Setup needed' },
-            { label: 'SME Courier', value: smeCourierStatus?.configured ? 'Connected' : 'Setup needed' },
+            { label: 'SME Courier', value: smeCourierStatus?.status || (smeCourierStatus?.configured ? 'Credentials connected' : 'Setup needed') },
           ]}
           actions={
             <HStack spacing={3} flexWrap="wrap">
