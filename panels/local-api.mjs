@@ -213,15 +213,32 @@ const defaultB2bZoneRates = () => {
     volumetric_factor: 5000, is_active: true,
   })))
 }
+const defaultSMEB2BMatrixRates = () => {
+  const domesticOrigins = DEFAULT_B2B_ZONES.filter((zone) => zone.country === 'India')
+  const internationalDestinations = DEFAULT_B2B_ZONES.filter((zone) => zone.country !== 'India')
+  const perKgByZone = { Canada: 2800, 'United States': 2600, Europe: 3000 }
+  const plans = (state?.plans || []).filter((plan) => String(plan.business_type || '').toLowerCase() === 'b2b')
+  const planIds = [...new Set(['starter-b2b', ...plans.map((plan) => String(plan.id))])]
+  return planIds.flatMap((planId) => domesticOrigins.flatMap((origin) => internationalDestinations.map((destination) => ({
+    id: `sme-b2b-rate-${planId}-${origin.code.toLowerCase()}-${destination.code.toLowerCase()}`,
+    originZoneId: origin.id, origin_zone_id: origin.id,
+    destinationZoneId: destination.id, destination_zone_id: destination.id,
+    courier_id: 99002, courier_name: 'SME Courier FedEx Direct', service_provider: 'smecourier', plan_id: planId,
+    ratePerKg: perKgByZone[destination.name], rate_per_kg: perKgByZone[destination.name],
+    min_charge: perKgByZone[destination.name] * 2, min_charge_weight: 2,
+    volumetric_factor: 5000, is_active: true,
+    rate_note: 'Temporary PunjabShip-set INR/kg rate for initial shipment checks; update after verification. Not an SME quote.',
+  }))))
+}
 
-// Planning-only examples. These are intentionally inactive because the SME
-// account does not expose live rate quotes; confirm SME's tariff before use.
+// Editable starting rates for the administrator's first live shipment check.
+// They are PunjabShip-set estimates, not an SME tariff or carrier quote.
 const defaultSMEDemoRates = () => [
   {
     id: 'rate-smecourier-demo-b2c', plan_id: 'starter-b2c', businessType: 'b2c',
-    courier_id: 99002, courier_name: 'SME Courier FedEx Direct (DEMO)', service_provider: 'smecourier',
+    courier_id: 99002, courier_name: 'SME Courier FedEx Direct', service_provider: 'smecourier',
     mode: 'air', min_weight: 0.5, cod_charges: 0, cod_percent: 0, other_charges: 0,
-    is_demo: true, is_active: false, rate_note: 'Illustrative INR only; not an SME quote. Confirm official rates before activation.',
+    is_demo: true, is_active: false, rate_note: 'Temporary PunjabShip-set rate for the initial live shipment check; update after verification. Not an SME quote.',
     rates: { Canada: { forward: 3200, rto: 0 }, 'United States': { forward: 3000, rto: 0 }, Europe: { forward: 3400, rto: 0 } },
     zone_slabs: {
       Canada: makeSlab(3200, 0, 1250, 0),
@@ -231,9 +248,9 @@ const defaultSMEDemoRates = () => [
   },
   {
     id: 'rate-smecourier-demo-b2b', plan_id: 'starter-b2b', businessType: 'b2b',
-    courier_id: 99002, courier_name: 'SME Courier FedEx Direct (DEMO)', service_provider: 'smecourier',
+    courier_id: 99002, courier_name: 'SME Courier FedEx Direct', service_provider: 'smecourier',
     mode: 'air', min_weight: 2, cod_charges: 0, cod_percent: 0, other_charges: 0,
-    is_demo: true, is_active: false, rate_note: 'Illustrative INR per kg only; not an SME quote. Confirm official rates before activation.',
+    is_demo: true, is_active: false, rate_note: 'Temporary PunjabShip-set INR/kg rate for the initial shipment check; update after verification. Not an SME quote.',
     rates: {
       Canada: { forward_per_kg: 2800, rto_per_kg: 0, min_weight: 2 },
       'United States': { forward_per_kg: 2600, rto_per_kg: 0, min_weight: 2 },
@@ -243,10 +260,10 @@ const defaultSMEDemoRates = () => [
 ]
 const keepSMERateDemoOnly = (rate, confirmLiveRate = false) => {
   if (Number(rate.courier_id) === 99002 || String(rate.service_provider || '').toLowerCase() === 'smecourier') {
-    const confirmed = confirmLiveRate && normalizeBusinessType(rate.businessType) === 'b2c'
-    rate.is_demo = !confirmed
-    rate.is_active = confirmed
-    rate.rate_note = confirmed ? 'SME B2C tariff confirmed by PunjabShip administrator.' : 'Illustrative only; SME tariff is unverified. Live booking remains disabled.'
+    const enabled = confirmLiveRate && normalizeBusinessType(rate.businessType) === 'b2c'
+    rate.is_demo = !enabled
+    rate.is_active = enabled
+    rate.rate_note = enabled ? 'Temporary PunjabShip-set rate enabled for initial live shipment check; replace after verification. Not an SME quote.' : 'Temporary rate inactive. Enable in B2C Pricing for the initial live shipment check.'
   }
   return rate
 }
@@ -551,13 +568,24 @@ for (const defaultRate of [defaultB2cRate(), defaultB2bRate()]) {
 }
 if (smeCourier.isConfigured()) {
   for (const demoRate of defaultSMEDemoRates()) {
-    if (!state.shippingRates.some((rate) => rate.id === demoRate.id)) {
+    const existingRate = state.shippingRates.find((rate) => rate.id === demoRate.id)
+    if (!existingRate) {
       state.shippingRates.push(demoRate)
+      stateNeedsSave = true
+    } else if (existingRate.is_demo && existingRate.rate_note !== demoRate.rate_note) {
+      existingRate.courier_name = demoRate.courier_name
+      existingRate.rate_note = demoRate.rate_note
       stateNeedsSave = true
     }
   }
 }
 for (const rate of defaultB2bZoneRates()) {
+  if (!state.b2bZoneRates.some((item) => item.id === rate.id)) {
+    state.b2bZoneRates.push(rate)
+    stateNeedsSave = true
+  }
+}
+for (const rate of defaultSMEB2BMatrixRates()) {
   if (!state.b2bZoneRates.some((item) => item.id === rate.id)) {
     state.b2bZoneRates.push(rate)
     stateNeedsSave = true
@@ -1355,8 +1383,8 @@ const getSMEIntegrationReadiness = () => {
     note: !configured
       ? 'Add and verify SME Courier credentials.'
       : bookingReady
-        ? 'B2C live tariff confirmed; B2B values remain demo-only.'
-        : 'Confirm SME Courier’s official B2C tariff in B2C Pricing. B2B values are demo-only.',
+        ? 'Temporary B2C rate is enabled for the initial live shipment check; update it after verification. Direct SME B2B booking is not enabled.'
+        : 'Add/enable a temporary SME B2C rate in B2C Pricing. Temporary B2B rates are available for pricing display only.',
   }
 }
 
@@ -2987,14 +3015,28 @@ http.createServer(async (req, res) => {
       // readiness remains visible to administrators through the status route.
       const includeShipGlobal = configured && normalizeBusinessType(body.shipment_type) === 'b2c' && path !== '/api/couriers/b2b-rate-quotes'
       const smeConfigured = smeCourier.isConfigured()
-      const smeRatesConfirmed = state.shippingRates.some((rate) => Number(rate.courier_id) === 99002 && normalizeBusinessType(rate.businessType) === 'b2c' && !rate.is_demo && rate.is_active === true)
+      const smeRate = state.shippingRates.find((rate) => Number(rate.courier_id) === 99002 && normalizeBusinessType(rate.businessType) === 'b2c' && !rate.is_demo && rate.is_active === true && (!body.plan_id || String(rate.plan_id) === String(body.plan_id)))
+      const destination = String(body.destination || body.deliveryPincode || '')
+      const destinationCountryCode = destinationCountryCodeFor(body, destination)
+      const zone = destinationCountryCode === 'IN' ? null : zoneForShipmentDestination('b2c', destination, destinationCountryCode)
+      const chargeableWeight = Math.max(Number(body.weight || 0) / 1000, Number(smeRate?.min_weight || 0.5))
+      const freight = smeRate && zone ? calculateB2cFreight(smeRate, zone.name, chargeableWeight) : null
+      const smeQuoteReady = Boolean(smeConfigured && smeRate && Number.isFinite(freight) && freight > 0)
+      const subtotal = smeQuoteReady ? Number((freight + Number(smeRate.other_charges || 0)).toFixed(2)) : 0
+      const gstAmount = Number((subtotal * 0.18).toFixed(2))
+      const total = Number((subtotal + gstAmount).toFixed(2))
       const smeOption = {
         id: 99002, courier_id: 99002, name: 'SME Courier FedEx Direct', displayName: 'SME Courier FedEx Direct',
         integration_type: 'smecourier', courier_option_key: 'smecourier-fedex-direct', service: smeCourier.serviceCode,
-        mode: 'air', rate: null, courier_cost_estimate: null, booking_available: smeConfigured && smeRatesConfirmed, can_book: smeConfigured && smeRatesConfirmed,
-        booking_blocked_reason: !smeConfigured ? 'SME Courier credentials must be configured by the administrator.' : smeRatesConfirmed ? null : 'Demo rates are inactive. Confirm SME Courier tariff and activate a non-demo rate before booking.',
-        rate_status: smeRatesConfirmed ? 'confirmed' : 'demo',
-        provider_serviceability: { provider: 'SME Courier FedEx Direct', service: smeCourier.serviceCode, booking_available: smeConfigured && smeRatesConfirmed, can_book: smeConfigured && smeRatesConfirmed, rate_status: smeRatesConfirmed ? 'confirmed' : 'demo' },
+        mode: 'air', rate: smeQuoteReady ? Number(freight.toFixed(2)) : null, courier_cost_estimate: smeQuoteReady ? total : null,
+        chargeable_weight: smeQuoteReady ? Number((chargeableWeight * 1000).toFixed(0)) : null,
+        total_charges_without_gst: smeQuoteReady ? subtotal : null, gst_percent: 18, gst_amount: smeQuoteReady ? gstAmount : null,
+        total_charges_with_gst: smeQuoteReady ? total : null, total_charges: smeQuoteReady ? total : null, wallet_debit_amount: smeQuoteReady ? total : null,
+        booking_available: smeQuoteReady, can_book: smeQuoteReady,
+        booking_blocked_reason: !smeConfigured ? 'SME Courier credentials must be configured by the administrator.' : smeRate ? 'No temporary rate is configured for this destination.' : 'Activate the temporary SME B2C rate in admin pricing before booking.',
+        rate_status: smeQuoteReady ? 'temporary' : 'unavailable',
+        approxZone: zone ? { id: zone.id, code: zone.code, name: zone.name, country: countryNameFromCode(destinationCountryCode), countries: normalizeZoneCountries(zone) } : null,
+        provider_serviceability: { provider: 'SME Courier FedEx Direct', service: smeCourier.serviceCode, booking_available: smeQuoteReady, can_book: smeQuoteReady, rate_status: smeQuoteReady ? 'temporary' : 'unavailable' },
       }
       const includeSME = smeConfigured && normalizeBusinessType(body.shipment_type) === 'b2c' && path !== '/api/couriers/b2b-rate-quotes'
       return send({ success: true, data: [...manualQuotes, ...(includeShipGlobal ? [courier] : []), ...(includeSME ? [smeOption] : [])] })
@@ -3020,6 +3062,11 @@ http.createServer(async (req, res) => {
       if (String(normalizedBody.integration_type || '').toLowerCase() === 'smecourier' || String(normalizedBody.courier_option_key || '').toLowerCase().includes('smecourier')) {
         if (!smeCourier.isConfigured()) return send({ success: false, message: 'SME Courier credentials and service/document settings are not configured on the backend.' }, 503)
         if (state.orders.some((order) => String(order.order_number) === String(normalizedBody.order_number))) return send({ success: false, message: 'Order number already exists.' }, 409)
+        const destinationCode = normalizeCountryCode(normalizedBody.consignee?.country_code || normalizedBody.country_code)
+        const destinationZone = destinationCode === 'IN' ? null : zoneForShipmentDestination('b2c', normalizedBody.consignee?.pincode || '', destinationCode)
+        const liveRate = state.shippingRates.find((rate) => Number(rate.courier_id) === 99002 && normalizeBusinessType(rate.businessType) === 'b2c' && !rate.is_demo && rate.is_active === true && (!seller.currentB2CPlanId || String(rate.plan_id) === String(seller.currentB2CPlanId)))
+        const estimatedFreight = liveRate && destinationZone ? calculateB2cFreight(liveRate, destinationZone.name, Math.max(Number(normalizedBody.package_weight || 0) / 1000, Number(liveRate.min_weight || 0.5))) : null
+        if (!liveRate || !Number.isFinite(estimatedFreight) || estimatedFreight <= 0) return send({ success: false, message: 'An active temporary SME B2C rate is required for this destination before booking.' }, 409)
         const providerPayload = mapPunjabShipOrderToSME({ ...normalizedBody, __seller: seller }, smeCourier.defaults)
         const missing = validateSMEOrder(providerPayload)
         if (missing.length) return send({ success: false, message: `Missing SME Courier fields: ${missing.join(', ')}`, missingFields: missing }, 400)

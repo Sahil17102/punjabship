@@ -434,10 +434,10 @@ export const RateCardEditModal = ({
         {normalizeProvider(displayServiceProvider) === 'smecourier' && isB2C && (
           <FormControl mb={4}>
             <Checkbox isChecked={confirmLiveSMERates} onChange={(event) => setConfirmLiveSMERates(event.target.checked)} colorScheme="orange">
-              I have entered and confirmed SME Courier's official B2C tariff
+              Activate these temporary rates for the initial live shipment check
             </Checkbox>
             <Text fontSize="xs" color="orange.700" mt={1}>
-              Keep this unchecked for demo values. Checking it enables live SME booking with the rates in this card.
+              These are editable PunjabShip rates, not an SME quote. Enabling them allows a real B2C booking; update them after the check.
             </Text>
           </FormControl>
         )}

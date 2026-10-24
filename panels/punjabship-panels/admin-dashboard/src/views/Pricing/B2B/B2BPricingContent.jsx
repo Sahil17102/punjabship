@@ -119,7 +119,7 @@ const B2BPricingContent = () => {
                     const courierKey = `${courier.id}|${provider}`
                     return (
                       <option key={courierKey} value={courierKey}>
-                        {courier.name}{courier.isDemoRateOnly ? ' (DEMO — live booking unavailable)' : ''}
+                        {courier.name}{courier.isDemoRateOnly ? ' (temporary rate; B2B booking unavailable)' : ''}
                       </option>
                     )
                   })}
@@ -130,7 +130,7 @@ const B2BPricingContent = () => {
           <Divider mt={4} />
           {String(selectedCourier?.serviceProvider || selectedCourier?.service_provider || '').toLowerCase() === 'smecourier' && (
             <Text mt={3} fontSize="sm" color="orange.700" role="note">
-              SME Courier B2B values are illustrative demo rates only. They are not carrier quotes and cannot be used to book live B2B shipments.
+              SME B2B rates are temporary PunjabShip-set INR/kg values, editable in this rate matrix. They are not carrier quotes; direct SME B2B booking is not enabled.
             </Text>
           )}
         </Box>
