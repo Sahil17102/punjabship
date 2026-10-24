@@ -86,6 +86,17 @@ const INTERNATIONAL_ZONE_DEFINITIONS = [
   { key: 'usa', code: 'US', name: 'United States', countries: ['United States'], b2cRate: 1350, b2cRto: 1150, b2cExtra: 450, b2cExtraRto: 400, b2bPerKg: 195 },
   { key: 'europe', code: 'EU', name: 'Europe', countries: EUROPE_COUNTRIES, b2cRate: 1550, b2cRto: 1300, b2cExtra: 520, b2cExtraRto: 460, b2bPerKg: 225 },
 ]
+// Services returned by the live Skylink rate calculator for a 0.5 kg
+// Delhi-to-Canada NONDOX shipment on 2026-10-25. These editable starter
+// cards make every Skylink service visible in B2C and B2B pricing; live B2C
+// checkout continues to use the provider quote returned for the exact order.
+const SKYLINK_SERVICE_CATALOG = [
+  { courierId: 99101, serviceCode: 'SKYNET CANADA YUL', name: 'SKYNET CANADA YUL', canadaRate: 1414.92, canadaPerKg: 3339.22 },
+  { courierId: 99102, serviceCode: 'UPS EXPRESS SAVER', name: 'UPS EXPRESS SAVER', canadaRate: 1865.08, canadaPerKg: 4401.58 },
+  { courierId: 99103, serviceCode: 'FEDEX IP', name: 'FEDEX IP', canadaRate: 1921.16, canadaPerKg: 4533.94 },
+  { courierId: 99104, serviceCode: 'SKYNET CANADA YVR', name: 'SKYNET CANADA YVR', canadaRate: 1994.08, canadaPerKg: 4706.02 },
+  { courierId: 99105, serviceCode: 'DHL EXPRESS', name: 'DHL EXPRESS', canadaRate: 2720.09, canadaPerKg: 6419.42 },
+]
 const DEFAULT_B2C_ZONES = [
   { id: 'b2c-local', code: 'A', name: 'Local', description: 'Same city / nearby pincode cluster', business_type: 'b2c', is_active: true },
   { id: 'b2c-state', code: 'B', name: 'Within State', description: 'Pickup and delivery in the same state', business_type: 'b2c', is_active: true },
@@ -230,6 +241,45 @@ const defaultSMEB2BMatrixRates = () => {
     min_charge: perKgByZone[destination.name] * 2, min_charge_weight: 2,
     volumetric_factor: 5000, is_active: true,
     rate_note: 'SME Courier B2B rate card. Edit rates in B2B Pricing.',
+  }))))
+}
+
+const defaultSkylinkRates = () => SKYLINK_SERVICE_CATALOG.flatMap((service) => {
+  const starterNote = 'Editable starter rate copied from the Skylink portal on 2026-10-25. Live B2C checkout uses the exact provider quote.'
+  return [{
+    id: `rate-skylink-${service.courierId}-b2c`, plan_id: 'starter-b2c', businessType: 'b2c',
+    courier_id: service.courierId, courier_name: service.name, service_provider: 'skylink',
+    service_code: service.serviceCode, mode: 'air', min_weight: 0.5,
+    cod_charges: 0, cod_percent: 0, other_charges: 0, is_active: true,
+    rate_note: starterNote,
+    rates: { Canada: { forward: service.canadaRate, rto: 0 } },
+    zone_slabs: { Canada: makeSlab(service.canadaRate, 0, service.canadaRate, 0) },
+  }, {
+    id: `rate-skylink-${service.courierId}-b2b`, plan_id: 'starter-b2b', businessType: 'b2b',
+    courier_id: service.courierId, courier_name: service.name, service_provider: 'skylink',
+    service_code: service.serviceCode, mode: 'air', min_weight: 0.5,
+    cod_charges: 0, cod_percent: 0, other_charges: 0, is_active: true,
+    rate_note: `${starterNote} Direct Skylink B2B booking is not enabled.`,
+    rates: { Canada: { forward_per_kg: service.canadaPerKg, rto_per_kg: 0, min_weight: 0.5 } },
+  }]
+})
+
+const defaultSkylinkB2BMatrixRates = () => {
+  const domesticOrigins = DEFAULT_B2B_ZONES.filter((zone) => zone.country === 'India')
+  const canada = DEFAULT_B2B_ZONES.find((zone) => zone.name === 'Canada')
+  if (!canada) return []
+  const plans = (state?.plans || []).filter((plan) => String(plan.business_type || '').toLowerCase() === 'b2b')
+  const planIds = [...new Set(['starter-b2b', ...plans.map((plan) => String(plan.id))])]
+  return planIds.flatMap((planId) => SKYLINK_SERVICE_CATALOG.flatMap((service) => domesticOrigins.map((origin) => ({
+    id: `skylink-b2b-rate-${planId}-${service.courierId}-${origin.code.toLowerCase()}-ca`,
+    originZoneId: origin.id, origin_zone_id: origin.id,
+    destinationZoneId: canada.id, destination_zone_id: canada.id,
+    courier_id: service.courierId, courier_name: service.name,
+    service_provider: 'skylink', service_code: service.serviceCode, plan_id: planId,
+    ratePerKg: service.canadaPerKg, rate_per_kg: service.canadaPerKg,
+    min_charge: service.canadaRate, min_charge_weight: 0.5,
+    volumetric_factor: 5000, is_active: true,
+    rate_note: 'Editable Skylink portal starter rate. Direct B2B booking is not enabled.',
   }))))
 }
 
@@ -406,7 +456,7 @@ const defaultState = {
   },
   manualCouriers: [defaultManualCourier()],
   zones: [...DEFAULT_B2C_ZONES, ...DEFAULT_B2B_ZONES],
-  shippingRates: [defaultB2cRate(), defaultB2bRate()],
+  shippingRates: [defaultB2cRate(), defaultB2bRate(), ...defaultSkylinkRates()],
   b2bZoneRates: defaultB2bZoneRates(),
   b2bAdditionalCharges: [],
   zoneMappings: [],
@@ -544,7 +594,7 @@ for (let index = 0; index < state.zones.length; index += 1) {
     stateNeedsSave = true
   }
 }
-for (const defaultRate of [defaultB2cRate(), defaultB2bRate()]) {
+for (const defaultRate of [defaultB2cRate(), defaultB2bRate(), ...defaultSkylinkRates()]) {
   const existingRate = state.shippingRates.find((item) => item.id === defaultRate.id)
   if (!existingRate) {
     state.shippingRates.push(defaultRate)
@@ -588,6 +638,12 @@ for (const rate of defaultB2bZoneRates()) {
   }
 }
 for (const rate of defaultSMEB2BMatrixRates()) {
+  if (!state.b2bZoneRates.some((item) => item.id === rate.id)) {
+    state.b2bZoneRates.push(rate)
+    stateNeedsSave = true
+  }
+}
+for (const rate of defaultSkylinkB2BMatrixRates()) {
   if (!state.b2bZoneRates.some((item) => item.id === rate.id)) {
     state.b2bZoneRates.push(rate)
     stateNeedsSave = true
@@ -2849,10 +2905,17 @@ http.createServer(async (req, res) => {
       if (!businessType || ['b2b', 'b2c'].includes(businessType)) {
         const readiness = getSMEIntegrationReadiness()
         couriers.push({ id: 99002, courierId: 99002, name: 'SME Courier FedEx Direct', displayName: 'SME Courier FedEx Direct', serviceProvider: 'smecourier', service_provider: 'smecourier', mode: 'air', isEnabled: readiness.bookingReady, businessType: ['b2c', 'b2b'], isIntegration: true, isDemoRateOnly: !readiness.bookingReady, directB2bBookingUnavailable: true, integrationConfigured: readiness.configured, integrationReady: readiness.bookingReady, integrationStatus: readiness.status, integrationNote: readiness.note })
-        if (!businessType || businessType === 'b2c') {
-          const skylinkReadiness = getSkylinkIntegrationReadiness()
-          couriers.push({ id: 99003, courierId: 99003, name: 'Skylink International', displayName: 'Skylink International', serviceProvider: 'skylink', service_provider: 'skylink', mode: 'air', isEnabled: skylinkReadiness.bookingReady, businessType: ['b2c'], isIntegration: true, isDemoRateOnly: false, integrationConfigured: skylinkReadiness.configured, integrationReady: skylinkReadiness.bookingReady, integrationStatus: skylinkReadiness.status, integrationNote: skylinkReadiness.note })
-        }
+        const skylinkReadiness = getSkylinkIntegrationReadiness()
+        couriers.push(...SKYLINK_SERVICE_CATALOG.map((service) => ({
+          id: service.courierId, courierId: service.courierId, name: service.name, displayName: service.name,
+          serviceCode: service.serviceCode, serviceProvider: 'skylink', service_provider: 'skylink', mode: 'air',
+          isEnabled: skylinkReadiness.bookingReady, businessType: ['b2c', 'b2b'], isIntegration: true,
+          isDemoRateOnly: false, directB2bBookingUnavailable: businessType === 'b2b',
+          integrationConfigured: skylinkReadiness.configured, integrationReady: skylinkReadiness.bookingReady,
+          integrationStatus: skylinkReadiness.status, integrationNote: businessType === 'b2b'
+            ? 'Editable matrix rate only; direct Skylink B2B booking is not enabled.'
+            : skylinkReadiness.note,
+        })))
       }
       const provider = String(requestUrl.searchParams.get('serviceProvider') || '').trim().toLowerCase()
       const search = String(requestUrl.searchParams.get('search') || '').trim().toLowerCase()
@@ -2881,10 +2944,17 @@ http.createServer(async (req, res) => {
       if (requestUrl.searchParams.get('includeIntegrations') === 'true' && ['b2b', 'b2c'].includes(businessType)) {
         const readiness = getSMEIntegrationReadiness()
         couriers.push({ id: 99002, courierId: 99002, name: 'SME Courier FedEx Direct', displayName: 'SME Courier FedEx Direct', serviceProvider: 'smecourier', service_provider: 'smecourier', isEnabled: readiness.bookingReady, businessType: ['b2c', 'b2b'], isIntegration: true, isDemoRateOnly: !readiness.bookingReady, directB2bBookingUnavailable: true, integrationConfigured: readiness.configured, integrationReady: readiness.bookingReady, integrationStatus: readiness.status, integrationNote: readiness.note })
-        if (businessType === 'b2c') {
-          const skylinkReadiness = getSkylinkIntegrationReadiness()
-          couriers.push({ id: 99003, courierId: 99003, name: 'Skylink International', displayName: 'Skylink International', serviceProvider: 'skylink', service_provider: 'skylink', isEnabled: skylinkReadiness.bookingReady, businessType: ['b2c'], isIntegration: true, isDemoRateOnly: false, integrationConfigured: skylinkReadiness.configured, integrationReady: skylinkReadiness.bookingReady, integrationStatus: skylinkReadiness.status, integrationNote: skylinkReadiness.note })
-        }
+        const skylinkReadiness = getSkylinkIntegrationReadiness()
+        couriers.push(...SKYLINK_SERVICE_CATALOG.map((service) => ({
+          id: service.courierId, courierId: service.courierId, name: service.name, displayName: service.name,
+          serviceCode: service.serviceCode, serviceProvider: 'skylink', service_provider: 'skylink', mode: 'air',
+          isEnabled: skylinkReadiness.bookingReady, businessType: ['b2c', 'b2b'], isIntegration: true,
+          isDemoRateOnly: false, directB2bBookingUnavailable: businessType === 'b2b',
+          integrationConfigured: skylinkReadiness.configured, integrationReady: skylinkReadiness.bookingReady,
+          integrationStatus: skylinkReadiness.status, integrationNote: businessType === 'b2b'
+            ? 'Editable matrix rate only; direct Skylink B2B booking is not enabled.'
+            : skylinkReadiness.note,
+        })))
       }
       return send({ success: true, data: couriers })
     }

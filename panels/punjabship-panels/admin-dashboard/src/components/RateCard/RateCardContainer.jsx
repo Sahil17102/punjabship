@@ -33,7 +33,13 @@ import { fetchAllCouriersList } from 'services/courier.service'
 import { PlansService } from 'services/plan.service'
 
 const normalizeProvider = (value) => String(value || '').trim().toLowerCase()
-const RATE_CARD_PROVIDER_ALLOWLIST = new Set(['delhivery', 'manual', 'velocity', 'smecourier'])
+const RATE_CARD_PROVIDER_ALLOWLIST = new Set([
+  'delhivery',
+  'manual',
+  'velocity',
+  'smecourier',
+  'skylink',
+])
 const isCourierEnabled = (courier = {}) => courier.isEnabled !== false && courier.is_enabled !== false
 const isRateCardAllowedCourier = (courier = {}) =>
   isCourierEnabled(courier) &&
@@ -299,6 +305,11 @@ export const RateCardContainer = ({ forceBusinessType = null, embedded = false }
       {rateCardCouriers.some((courier) => normalizeProvider(courier.serviceProvider || courier.service_provider) === 'smecourier') && (
         <Box bg="orange.50" border="1px solid" borderColor="orange.200" color="orange.900" borderRadius="md" p={3} fontSize="sm">
           SME shipment pricing is managed here. B2C rates are used for live SME bookings; B2B rates are available in the B2B rate matrix.
+        </Box>
+      )}
+      {rateCardCouriers.some((courier) => normalizeProvider(courier.serviceProvider || courier.service_provider) === 'skylink') && (
+        <Box bg="blue.50" border="1px solid" borderColor="blue.200" color="blue.900" borderRadius="md" p={3} fontSize="sm">
+          Skylink starter cards are editable reference rates from its portal. Live B2C checkout always uses the exact provider quote for the shipment; direct B2B booking is not enabled.
         </Box>
       )}
       {!forceBusinessType && (
