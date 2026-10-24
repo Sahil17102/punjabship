@@ -2,6 +2,7 @@ import {
   Badge,
   Box,
   Button,
+  Checkbox,
   Divider,
   Flex,
   FormControl,
@@ -48,6 +49,7 @@ export const RateCardEditModal = ({
 }) => {
   const { mutate: updateRate, isLoading } = useUpdateShippingRate()
   const [form, setForm] = useState({})
+  const [confirmLiveSMERates, setConfirmLiveSMERates] = useState(false)
   const isB2C = businessType?.toLowerCase() === 'b2c'
   const hasValue = (value) => value !== undefined && value !== null && String(value).trim() !== ''
 
@@ -93,6 +95,7 @@ export const RateCardEditModal = ({
     })
 
     setForm(initialForm)
+    setConfirmLiveSMERates(Boolean(data?.is_active && !data?.is_demo))
   }, [data, zones])
 
   const handleChange = (field, value, type = null) => {
@@ -209,6 +212,7 @@ export const RateCardEditModal = ({
       rates,
       zone_slabs: isB2C ? form.zone_slabs : undefined,
       businessType,
+      confirm_live_rate: normalizeProvider(serviceProviderValue) === 'smecourier' && isB2C && confirmLiveSMERates,
     }
 
     if (onSave) onSave(payload)
@@ -427,6 +431,16 @@ export const RateCardEditModal = ({
         <Text fontWeight="bold" mb={2}>
           Courier Info
         </Text>
+        {normalizeProvider(displayServiceProvider) === 'smecourier' && isB2C && (
+          <FormControl mb={4}>
+            <Checkbox isChecked={confirmLiveSMERates} onChange={(event) => setConfirmLiveSMERates(event.target.checked)} colorScheme="orange">
+              I have entered and confirmed SME Courier's official B2C tariff
+            </Checkbox>
+            <Text fontSize="xs" color="orange.700" mt={1}>
+              Keep this unchecked for demo values. Checking it enables live SME booking with the rates in this card.
+            </Text>
+          </FormControl>
+        )}
         <SimpleGrid columns={2} spacing={4}>
           {normalizeProvider(displayServiceProvider) !== 'manual' && (
             <FormControl>

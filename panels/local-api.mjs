@@ -241,11 +241,12 @@ const defaultSMEDemoRates = () => [
     },
   },
 ]
-const keepSMERateDemoOnly = (rate) => {
+const keepSMERateDemoOnly = (rate, confirmLiveRate = false) => {
   if (Number(rate.courier_id) === 99002 || String(rate.service_provider || '').toLowerCase() === 'smecourier') {
-    rate.is_demo = true
-    rate.is_active = false
-    rate.rate_note = 'Illustrative only; SME tariff is unverified. Live booking remains disabled.'
+    const confirmed = confirmLiveRate && normalizeBusinessType(rate.businessType) === 'b2c'
+    rate.is_demo = !confirmed
+    rate.is_active = confirmed
+    rate.rate_note = confirmed ? 'SME B2C tariff confirmed by PunjabShip administrator.' : 'Illustrative only; SME tariff is unverified. Live booking remains disabled.'
   }
   return rate
 }
@@ -2743,8 +2744,9 @@ http.createServer(async (req, res) => {
       const businessType = normalizeBusinessType(body.businessType)
       let rate = state.shippingRates.find((item) => Number(item.courier_id) === courierId && String(item.plan_id) === planId && normalizeBusinessType(item.businessType) === businessType)
       if (!rate) { rate = { id: `rate-${randomUUID()}`, courier_id: courierId, plan_id: planId, businessType }; state.shippingRates.push(rate) }
-      Object.assign(rate, body, { courier_id: courierId, plan_id: planId, businessType, updated_at: new Date().toISOString() })
-      keepSMERateDemoOnly(rate)
+      const { confirm_live_rate: confirmLiveRate, ...rateBody } = body
+      Object.assign(rate, rateBody, { courier_id: courierId, plan_id: planId, businessType, updated_at: new Date().toISOString() })
+      keepSMERateDemoOnly(rate, confirmLiveRate === true && businessType === 'b2c')
       save(); return send({ success: true, data: rate, message: 'Shipping rate saved.' })
     }
     if (path === '/api/admin/couriers/rate-card-list' && req.method === 'GET') {
@@ -2952,7 +2954,7 @@ http.createServer(async (req, res) => {
       // readiness remains visible to administrators through the status route.
       const includeShipGlobal = configured && normalizeBusinessType(body.shipment_type) === 'b2c' && path !== '/api/couriers/b2b-rate-quotes'
       const smeConfigured = smeCourier.isConfigured()
-      const smeRatesConfirmed = state.shippingRates.some((rate) => Number(rate.courier_id) === 99002 && !rate.is_demo && rate.is_active !== false)
+      const smeRatesConfirmed = state.shippingRates.some((rate) => Number(rate.courier_id) === 99002 && normalizeBusinessType(rate.businessType) === 'b2c' && !rate.is_demo && rate.is_active === true)
       const smeOption = {
         id: 99002, courier_id: 99002, name: 'SME Courier FedEx Direct', displayName: 'SME Courier FedEx Direct',
         integration_type: 'smecourier', courier_option_key: 'smecourier-fedex-direct', service: smeCourier.serviceCode,

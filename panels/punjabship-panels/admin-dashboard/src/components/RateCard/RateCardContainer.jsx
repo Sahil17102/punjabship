@@ -298,7 +298,7 @@ export const RateCardContainer = ({ forceBusinessType = null, embedded = false }
       {/* Business Type Tabs - Only show if not forced */}
       {rateCardCouriers.some((courier) => normalizeProvider(courier.serviceProvider || courier.service_provider) === 'smecourier') && (
         <Box bg="orange.50" border="1px solid" borderColor="orange.200" color="orange.900" borderRadius="md" p={3} fontSize="sm">
-          SME Courier B2C and B2B rates here are illustrative demo values only, not carrier quotes. They stay inactive, and SME shipment booking stays blocked until the official tariff is confirmed.
+          SME Courier B2C and B2B rates here are illustrative demo values only, not carrier quotes. Keep the official tariff confirmation unchecked for these examples; only confirm it after replacing the demo values with SME's current B2C tariff.
         </Box>
       )}
       {!forceBusinessType && (
