@@ -1,6 +1,23 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
 const DEFAULT_BASE_URL = 'https://portal.smecourier.in'
 const text = (value) => String(value ?? '').trim()
 const first = (...values) => values.find((value) => text(value))
+
+// On the VPS, keep provider secrets in PunjabShip's shared folder so they
+// survive immutable release swaps without storing secrets in PM2's global dump.
+try {
+  const config = readFileSync(resolve(process.cwd(), '../shared/smecourier.env'), 'utf8')
+  for (const line of config.split(/\r?\n/)) {
+    const match = line.match(/^\s*(SMECOURIER_[A-Z0-9_]+)\s*=\s*(.*?)\s*$/)
+    if (!match || process.env[match[1]]) continue
+    const value = match[2].replace(/^(?:"(.*)"|'(.*)')$/, (_, doubleQuoted, singleQuoted) => doubleQuoted ?? singleQuoted)
+    process.env[match[1]] = value
+  }
+} catch (error) {
+  if (error.code !== 'ENOENT') throw error
+}
 
 export const mapPunjabShipOrderToSME = (order, defaults = {}) => {
   const pickup = order?.pickup || {}
