@@ -2806,7 +2806,7 @@ http.createServer(async (req, res) => {
         .map((item) => ({ id: item.courierId, courierId: item.courierId, name: item.displayName, displayName: item.displayName, serviceProvider: 'manual', service_provider: 'manual', isEnabled: item.isEnabled, businessType: [item.supportsB2c && 'b2c', item.supportsB2b && 'b2b'].filter(Boolean) }))
       if (!businessType || ['b2b', 'b2c'].includes(businessType)) {
         const readiness = getSMEIntegrationReadiness()
-        couriers.push({ id: 99002, courierId: 99002, name: 'SME Courier FedEx Direct', displayName: 'SME Courier FedEx Direct', serviceProvider: 'smecourier', service_provider: 'smecourier', mode: 'air', isEnabled: readiness.bookingReady, businessType: ['b2c', 'b2b'], isIntegration: true, isDemoRateOnly: !readiness.bookingReady, integrationConfigured: readiness.configured, integrationReady: readiness.bookingReady, integrationStatus: readiness.status, integrationNote: readiness.note })
+        couriers.push({ id: 99002, courierId: 99002, name: 'SME Courier FedEx Direct', displayName: 'SME Courier FedEx Direct', serviceProvider: 'smecourier', service_provider: 'smecourier', mode: 'air', isEnabled: readiness.bookingReady, businessType: ['b2c', 'b2b'], isIntegration: true, isDemoRateOnly: !readiness.bookingReady, directB2bBookingUnavailable: true, integrationConfigured: readiness.configured, integrationReady: readiness.bookingReady, integrationStatus: readiness.status, integrationNote: readiness.note })
       }
       const provider = String(requestUrl.searchParams.get('serviceProvider') || '').trim().toLowerCase()
       const search = String(requestUrl.searchParams.get('search') || '').trim().toLowerCase()
@@ -2829,7 +2829,7 @@ http.createServer(async (req, res) => {
         .map((item) => ({ id: item.courierId, courierId: item.courierId, name: item.displayName, displayName: item.displayName, serviceProvider: 'manual', service_provider: 'manual', isEnabled: item.isEnabled, businessType: [item.supportsB2c && 'b2c', item.supportsB2b && 'b2b'].filter(Boolean) }))
       if (requestUrl.searchParams.get('includeIntegrations') === 'true' && ['b2b', 'b2c'].includes(businessType)) {
         const readiness = getSMEIntegrationReadiness()
-        couriers.push({ id: 99002, courierId: 99002, name: 'SME Courier FedEx Direct', displayName: 'SME Courier FedEx Direct', serviceProvider: 'smecourier', service_provider: 'smecourier', isEnabled: readiness.bookingReady, businessType: ['b2c', 'b2b'], isIntegration: true, isDemoRateOnly: !readiness.bookingReady, integrationConfigured: readiness.configured, integrationReady: readiness.bookingReady, integrationStatus: readiness.status, integrationNote: readiness.note })
+        couriers.push({ id: 99002, courierId: 99002, name: 'SME Courier FedEx Direct', displayName: 'SME Courier FedEx Direct', serviceProvider: 'smecourier', service_provider: 'smecourier', isEnabled: readiness.bookingReady, businessType: ['b2c', 'b2b'], isIntegration: true, isDemoRateOnly: !readiness.bookingReady, directB2bBookingUnavailable: true, integrationConfigured: readiness.configured, integrationReady: readiness.bookingReady, integrationStatus: readiness.status, integrationNote: readiness.note })
       }
       return send({ success: true, data: couriers })
     }
@@ -3037,7 +3037,7 @@ http.createServer(async (req, res) => {
         total_charges_without_gst: smeQuoteReady ? subtotal : null, gst_percent: 18, gst_amount: smeQuoteReady ? gstAmount : null,
         total_charges_with_gst: smeQuoteReady ? total : null, total_charges: smeQuoteReady ? total : null, wallet_debit_amount: smeQuoteReady ? total : null,
         booking_available: smeQuoteReady, can_book: smeQuoteReady,
-        booking_blocked_reason: !smeConfigured ? 'SME Courier credentials must be configured by the administrator.' : smeRate ? 'No temporary rate is configured for this destination.' : 'Activate the temporary SME B2C rate in admin pricing before booking.',
+        booking_blocked_reason: smeQuoteReady ? null : !smeConfigured ? 'SME Courier credentials must be configured by the administrator.' : smeRate ? 'No temporary rate is configured for this destination.' : 'Activate the temporary SME B2C rate in admin pricing before booking.',
         rate_status: smeQuoteReady ? 'temporary' : 'unavailable',
         approxZone: zone ? { id: zone.id, code: zone.code, name: zone.name, country: countryNameFromCode(destinationCountryCode), countries: normalizeZoneCountries(zone) } : null,
         provider_serviceability: { provider: 'SME Courier FedEx Direct', service: smeCourier.serviceCode, booking_available: smeQuoteReady, can_book: smeQuoteReady, rate_status: smeQuoteReady ? 'temporary' : 'unavailable' },

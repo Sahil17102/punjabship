@@ -119,7 +119,7 @@ const B2BPricingContent = () => {
                     const courierKey = `${courier.id}|${provider}`
                     return (
                       <option key={courierKey} value={courierKey}>
-                        {courier.name}{courier.isDemoRateOnly ? ' (temporary rate; B2B booking unavailable)' : ''}
+                        {courier.name}{courier.directB2bBookingUnavailable ? ' (B2B booking unavailable)' : ''}
                       </option>
                     )
                   })}
