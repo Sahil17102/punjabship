@@ -29,7 +29,10 @@ export const mapPunjabShipOrderToSME = (order, defaults = {}) => {
   return {
     Username: defaults.username,
     ShipmentType: first(order.shipment_type, defaults.shipmentType, 'NDox'),
-    ServiceCode: first(order.service, defaults.serviceCode),
+    // `order.service` can be a display label supplied by the courier picker.
+    // Shipment_Create requires the mapped SME service name configured for
+    // this account, so do not let that UI label override the provider code.
+    ServiceCode: first(order.service_code, order.serviceCode, defaults.serviceCode),
     ...(defaults.fedexAccountId ? { FedexAccountID: Number(defaults.fedexAccountId) } : {}),
     TrackingNo: text(order.order_number),
     ConsigneeName: first(consignee.company_name, consignee.name),
