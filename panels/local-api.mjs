@@ -1556,8 +1556,9 @@ const getSkylinkIntegrationReadiness = () => {
 const getFlightGoIntegrationReadiness = () => {
   const configured = flightGoCourier.isConfigured()
   const environment = flightGoCourier.defaults.environment
+  const bookingReady = flightGoCourier.isBookingReady()
   return {
-    configured, bookingReady: configured, environment,
+    configured, bookingReady, environment,
     status: !configured ? 'Setup needed' : environment === 'production' ? 'Production connected' : 'Test connected',
     note: !configured
       ? 'Add and verify FlightGo API credentials.'

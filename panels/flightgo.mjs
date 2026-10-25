@@ -68,6 +68,7 @@ export const createFlightGoClient = ({
   const settings = { username: text(username), password: text(password), apiKey: text(apiKey), packageCode: text(packageCode).toUpperCase(), environment: text(environment).toLowerCase(), baseUrl: text(baseUrl).replace(/\/$/, '') }
   const quoteCache = new Map()
   const configured = () => Boolean(settings.username && settings.password && settings.apiKey)
+  const bookingReady = () => configured() && settings.environment === 'production'
   const authHeaders = () => ({ Accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Basic ${Buffer.from(`${settings.username}:${settings.password}`).toString('base64')}` })
   const responseData = async (response) => {
     const raw = await response.text()
@@ -166,11 +167,16 @@ export const createFlightGoClient = ({
       if (!serviceCode || !branchName || !positive(total)) return []
       const subtotal = number(rate.Total) || freight; const gstAmount = number(rate['IGST (18%)']) || Math.max(0, total - subtotal)
       const isCod = text(order.payment_type || order.paymentType || order.order_type).toLowerCase() === 'cod'
-      const canBook = !isCod
+      const canBook = !isCod && bookingReady()
       const quoteId = randomUUID()
       quoteCache.set(quoteId, { serviceCode, branchName, zipcode, country, weightKg, postalCode: compactPostal(postalCode), canBook, expiresAt: now + 15 * 60 * 1000, providerRate: item })
       const displayName = text(company.name) && text(company.name).toLowerCase() !== country.toLowerCase() ? text(company.name) : `FlightGo ${serviceCode}`
-      return [{ id: 99004, courier_id: 99004, name: displayName, displayName, integration_type: 'flightgo', serviceProvider: 'flightgo', service_provider: 'flightgo', courier_option_key: `flightgo:${quoteId}`, flightgo_quote_id: quoteId, service: serviceCode, service_code: serviceCode, mode: 'air', rate: freight, courier_cost_estimate: total, total_charges_without_gst: subtotal, gst_percent: 18, gst_amount: gstAmount, total_charges_with_gst: total, total_charges: subtotal, wallet_debit_amount: total, cod_charges: 0, booking_available: canBook, can_book: canBook, booking_blocked_reason: canBook ? null : 'FlightGo international API does not document COD collection. Use prepaid for this shipment.', provider_serviceability: { provider: 'FlightGo Express', service: serviceCode, booking_available: canBook, can_book: canBook }, approxZone: { code: country, name: country } }]
+      const bookingBlockedReason = canBook
+        ? null
+        : isCod
+          ? 'FlightGo international API does not document COD collection. Use prepaid for this shipment.'
+          : 'FlightGo sandbox rates are for testing only. Add production credentials before creating a real shipment.'
+      return [{ id: 99004, courier_id: 99004, name: displayName, displayName, integration_type: 'flightgo', serviceProvider: 'flightgo', service_provider: 'flightgo', courier_option_key: `flightgo:${quoteId}`, flightgo_quote_id: quoteId, service: serviceCode, service_code: serviceCode, mode: 'air', rate: freight, courier_cost_estimate: total, total_charges_without_gst: subtotal, gst_percent: 18, gst_amount: gstAmount, total_charges_with_gst: total, total_charges: subtotal, wallet_debit_amount: total, cod_charges: 0, booking_available: canBook, can_book: canBook, booking_blocked_reason: bookingBlockedReason, provider_serviceability: { provider: 'FlightGo Express', service: serviceCode, booking_available: canBook, can_book: canBook }, approxZone: { code: country, name: country } }]
     })
   }
   const resolveQuote = (quoteId, order = {}) => {
@@ -194,5 +200,5 @@ export const createFlightGoClient = ({
     const labelUrl = text(roots.map((root) => root.label_url || root.label || root.pdf_url || root.download_url).find((value) => /^https?:\/\//i.test(text(value))))
     return { data, payload, awb, labelUrl }
   }
-  return { isConfigured: configured, isBookingReady: configured, configure, quoteRates, resolveQuote, createLabel, apiBaseUrl: settings.baseUrl, defaults: { packageCode: settings.packageCode, environment: settings.environment } }
+  return { isConfigured: configured, isBookingReady: bookingReady, configure, quoteRates, resolveQuote, createLabel, apiBaseUrl: settings.baseUrl, defaults: { packageCode: settings.packageCode, environment: settings.environment } }
 }

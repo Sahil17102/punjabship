@@ -37,9 +37,20 @@ test('FlightGo safely falls back to a Canadian FSA postal prefix', async () => {
   assert.deepEqual(searches, ['M5V 3A8', 'M5V3A8', 'M5V'])
 })
 
-test('FlightGo label request returns AWB and never treats an empty response as booked', async () => {
+test('FlightGo sandbox rates cannot be booked as real shipments', async () => {
+  const client = createFlightGoClient({ username: 'user', password: 'pass', apiKey: 'key', environment: 'test', fetchImpl: async (url) => {
+    if (url.endsWith('/api/location/zipcode')) return jsonResponse({ status: 'success', data: [{ zipcode_id: '22', zipcode_name: 'A0A1B0' }] })
+    return jsonResponse({ status: 'success', data: [{ company: { service_code: 'DHL1', branch_name: 'DELHI', total: 1180 }, rate: { Rate: 1000, Total: 1000, 'IGST (18%)': 180 } }] })
+  } })
+  const [option] = await client.quoteRates(baseOrder)
+  assert.equal(client.isBookingReady(), false)
+  assert.equal(option.can_book, false)
+  assert.match(option.booking_blocked_reason, /sandbox rates are for testing only/i)
+})
+
+test('FlightGo production label request returns AWB and never treats an empty response as booked', async () => {
   let labelHasExpectedShape = false
-  const client = createFlightGoClient({ username: 'user', password: 'pass', apiKey: 'key', fetchImpl: async (url, options) => {
+  const client = createFlightGoClient({ username: 'user', password: 'pass', apiKey: 'key', environment: 'production', fetchImpl: async (url, options) => {
     if (url.endsWith('/api/location/zipcode')) return jsonResponse({ status: 'success', data: [{ zipcode_id: '22', zipcode_name: 'A0A1B0' }] })
     if (url.endsWith('/api/rates/check')) return jsonResponse({ status: 'success', data: [{ company: { service_code: 'DHL1', branch_name: 'DELHI', total: 1180 }, rate: { Rate: 1000, Total: 1000, 'IGST (18%)': 180 } }] })
     const body = JSON.parse(options.body)
