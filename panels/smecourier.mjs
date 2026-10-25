@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 
 const DEFAULT_BASE_URL = 'https://portal.smecourier.in'
@@ -20,10 +20,18 @@ const CANADA_PROVINCE_CODES = new Map([
 ])
 const canadaProvinceCode = (value) => CANADA_PROVINCE_CODES.get(text(value).toLowerCase()) || text(value).toUpperCase()
 
-// On the VPS, keep provider secrets in PunjabShip's shared folder so they
-// survive immutable release swaps without storing secrets in PM2's global dump.
+// On the VPS, process.cwd() resolves the release symlink to
+// releases/<release>/api. Probe both layouts so secrets stay in PunjabShip's
+// persistent shared folder across immutable release swaps.
+const sharedConfigCandidates = [
+  process.env.PUNJABSHIP_SHARED_DIR ? resolve(process.env.PUNJABSHIP_SHARED_DIR, 'smecourier.env') : '',
+  resolve(process.cwd(), '../shared/smecourier.env'),
+  resolve(process.cwd(), '../../../shared/smecourier.env'),
+].filter(Boolean)
+const sharedConfigPath = sharedConfigCandidates.find(existsSync) || sharedConfigCandidates[0]
+
 try {
-  const config = readFileSync(resolve(process.cwd(), '../shared/smecourier.env'), 'utf8')
+  const config = readFileSync(sharedConfigPath, 'utf8')
   for (const line of config.split(/\r?\n/)) {
     const match = line.match(/^\s*(SMECOURIER_[A-Z0-9_]+)\s*=\s*(.*?)\s*$/)
     if (!match || process.env[match[1]]) continue
@@ -202,7 +210,7 @@ export const createSMECourierClient = ({
     if (!cleanUsername || !cleanPassword || !cleanService) throw Object.assign(new Error('Username, password, and service code are required.'), { statusCode: 400 })
     const login = await request('/api/user/login', { UserName: cleanUsername, Password: cleanPassword })
     if (!login?.Success || !login.AccessToken) throw Object.assign(new Error(login?.Message || 'SME Courier login failed; credentials were not saved.'), { statusCode: 422 })
-    const filePath = resolve(process.cwd(), '../shared/smecourier.env')
+    const filePath = sharedConfigPath
     mkdirSync(dirname(filePath), { recursive: true })
     const contents = [`SMECOURIER_USERNAME=${cleanUsername}`, `SMECOURIER_PASSWORD=${cleanPassword}`, `SMECOURIER_SERVICE_CODE=${cleanService}`, `SMECOURIER_SHIPMENT_TYPE=${settings.shipmentType}`, `SMECOURIER_DOC_TYPE=${settings.docType}`, settings.docValue ? `SMECOURIER_DOC_VALUE=${settings.docValue}` : '', settings.fedexAccountId ? `SMECOURIER_FEDEX_ACCOUNT_ID=${settings.fedexAccountId}` : '', settings.packageId ? `SMECOURIER_PACKAGE_ID=${settings.packageId}` : ''].filter(Boolean).join('\n') + '\n'
     const tempPath = `${filePath}.tmp-${process.pid}`
