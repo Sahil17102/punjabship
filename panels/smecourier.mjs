@@ -44,12 +44,20 @@ export const mapPunjabShipOrderToSME = (order, defaults = {}) => {
     first(consignee.address_line_2, consignee.address_2),
     consignee.landmark,
   )
-  const consignorAddress = addressLines(pickup.address, pickup.address_2, pickup.landmark)
+  const consignorAddress = addressLines(
+    first(pickup.address, pickup.addressLine1, pickup.address_line_1),
+    first(pickup.address_2, pickup.addressLine2, pickup.address_line_2),
+    pickup.landmark,
+  )
   const items = Array.isArray(order?.order_items) ? order.order_items : []
   const requestedShipmentType = [order?.provider_shipment_type, order?.ShipmentType, order?.shipmentType, order?.shipment_type]
     .map(text)
     .find((value) => /^dox$/i.test(value) || /^ndox$/i.test(value))
-  const totalItemWeight = Number(order.package_weight || 0)
+  const rawPackageWeight = Number(order.package_weight || 0)
+  // PunjabShip's B2C form stores package weight in grams, while SME expects kg.
+  const totalItemWeight = String(order.shipment_type || order.type).toLowerCase() === 'b2c' && rawPackageWeight > 50
+    ? rawPackageWeight / 1000
+    : rawPackageWeight
   const itemTotal = items.reduce((sum, item) => sum + Number(item.price || 0) * Number(item.qty || item.quantity || 1), 0)
   return {
     Username: defaults.username,
@@ -72,19 +80,19 @@ export const mapPunjabShipOrderToSME = (order, defaults = {}) => {
     ConsigneePhoneNo: text(consignee.phone),
     ConsigneeEmail: text(consignee.email),
     ConsigneeCountryCode: consigneeCountryCode,
-    ConsignorName: first(pickup.name, pickup.warehouse_name, seller.name),
-    ConsignorCompanyName: first(pickup.warehouse_name, seller.company_name, pickup.name),
+    ConsignorName: first(pickup.name, pickup.contactName, pickup.warehouse_name, pickup.addressNickname, seller.name, seller.companyInfo?.contactPerson),
+    ConsignorCompanyName: first(pickup.warehouse_name, pickup.addressNickname, seller.company_name, seller.companyInfo?.businessName, pickup.name, pickup.contactName),
     ConsignorAddressLine1: consignorAddress.line1,
     ConsignorAddressLine2: consignorAddress.line2,
     ConsignorAddressLine3: consignorAddress.line3,
     ConsignorCity: text(pickup.city),
     ConsignorPostCode: text(pickup.pincode),
     ConsignorState: text(pickup.state),
-    ConsignorPhoneNo: text(pickup.phone),
+    ConsignorPhoneNo: text(first(pickup.phone, pickup.contactPhone, pickup.contactNumber)),
     ConsignorEmail: text(seller.email),
     ConsignorCountryCode: text(pickup.country_code || 'IN').toUpperCase(),
     DocType: first(defaults.docType, 'GSTIN'),
-    DocValue: first(defaults.docValue, pickup.gst_number, seller.gstin, seller.gstNumber),
+    DocValue: first(defaults.docValue, pickup.gst_number, pickup.gstNumber, seller.gstin, seller.gstNumber, seller.companyInfo?.gstNumber, seller.companyInfo?.gstin),
     ConsignorRef: text(order.order_number),
     ShipContents: items.map((item) => text(item.name)).filter(Boolean).join(', '),
     CurrencyCode: first(order.currency_code, defaults.currencyCode, 'INR').toUpperCase(),
@@ -95,7 +103,7 @@ export const mapPunjabShipOrderToSME = (order, defaults = {}) => {
     PackageType: first(order.package_type, defaults.packageType),
     Packages: [{
       ...(defaults.packageId ? { PackageID: Number(defaults.packageId) } : {}),
-      Actual_Weight: Number(order.package_weight),
+      Actual_Weight: totalItemWeight,
       Length: Number(order.package_length), Width: Number(order.package_breadth), Height: Number(order.package_height),
     }],
     Items: items.map((item) => {
