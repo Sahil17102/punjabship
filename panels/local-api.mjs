@@ -45,6 +45,7 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Demo@123'
 const CLIENT_EMAIL = 'client@punjabshiplogistics.com'
 const CLIENT_PASSWORD = 'Demo@123'
 const PRIMARY_SELLER_EMAIL = process.env.PRIMARY_SELLER_EMAIL || 'sahilmittal1920@gmail.com'
+const CLIENT_PORTAL_URL = String(process.env.CLIENT_PORTAL_URL || process.env.FRONTEND_URL || 'https://punjabship.com').replace(/\/+$/, '')
 const SERVICEABILITY_SEED_SIZE = 27000
 const SHIPGLOBAL_SERVICE = process.env.SHIPGLOBAL_SERVICE || 'Shipglobal Direct'
 const SHIPGLOBAL_CURRENCY = process.env.SHIPGLOBAL_CURRENCY || 'INR'
@@ -578,6 +579,7 @@ state.orders ??= orders
 state.pendingOtps ??= {}
 state.passwordResetOtps ??= {}
 state.passwordResetTokens ??= {}
+state.oneTimePasswords ??= {}
 state.pickupAddresses ??= {}
 state.paymentOptions = {
   codEnabled: state.paymentOptions?.codEnabled ?? true,
@@ -788,12 +790,13 @@ const brandAddress = 'SODHI ONLINE SERVICES, Near Verka Plant, Barnala Raikot Ro
 state.invoicePreferences ??= { brandName: 'PunjabShip', sellerAddress: brandAddress, supportEmail: 'info@punjabshiplogistics.com', supportPhone: '+91 84878 81121', prefix: 'PS-INV', template: 'classic', includeLogo: true, includeSignature: false }
 state.aboutUs ??= { slug: 'about_us', title: 'About PunjabShip', content: `<h2>PunjabShip - Ship the world</h2><p>Plan domestic and international shipments with air, sea, road and courier choices in one clear booking workflow.</p><h3>Contact us</h3><p>${brandAddress}</p><p><a href="mailto:info@punjabshiplogistics.com">info@punjabshiplogistics.com</a></p><p><a href="tel:+918487881121">+91 84878 81121</a></p>` }
 
-const token = (role, id) => `${Buffer.from('{"alg":"none"}').toString('base64url')}.${Buffer.from(JSON.stringify({ id, role, exp: Math.floor(Date.now() / 1000) + 86400 })).toString('base64url')}.local`
+const token = (role, id, expiresInSeconds = 86400) => `${Buffer.from('{"alg":"none"}').toString('base64url')}.${Buffer.from(JSON.stringify({ id, role, exp: Math.floor(Date.now() / 1000) + expiresInSeconds })).toString('base64url')}.local`
 const decodeToken = (req) => {
   try {
     const value = String(req.headers.authorization || req.headers['x-punjabship-access-token'] || '')
     const raw = value.startsWith('Bearer ') ? value.slice(7) : value
-    return JSON.parse(Buffer.from(raw.split('.')[1], 'base64url').toString('utf8'))
+    const session = JSON.parse(Buffer.from(raw.split('.')[1], 'base64url').toString('utf8'))
+    return Number(session?.exp || 0) > Math.floor(Date.now() / 1000) ? session : null
   } catch { return null }
 }
 const currentSeller = (req) => {
@@ -1927,10 +1930,21 @@ http.createServer(async (req, res) => {
     if (path === '/api/auth/request-password-login' && req.method === 'POST') {
       const email = String(body.email || '').trim().toLowerCase()
       const seller = state.users.find((item) => item.email === email)
-      const validPassword = seller?.passwordHash
-        ? passwordMatches(String(body.password || ''), seller.passwordHash)
+      const submittedPassword = String(body.password || '')
+      const validSavedPassword = seller?.passwordHash
+        ? passwordMatches(submittedPassword, seller.passwordHash)
         : email === CLIENT_EMAIL && body.password === CLIENT_PASSWORD
-      if (!seller || !validPassword) return send({ error: 'Invalid email or password.' }, 401)
+      const oneTimePassword = seller ? state.oneTimePasswords[seller.id] : null
+      const validOneTimePassword = Boolean(
+        oneTimePassword &&
+        Number(oneTimePassword.expiresAt || 0) >= Date.now() &&
+        passwordMatches(submittedPassword, oneTimePassword.passwordHash),
+      )
+      if (!seller || (!validSavedPassword && !validOneTimePassword)) return send({ error: 'Invalid email or password.' }, 401)
+      if (validOneTimePassword) {
+        delete state.oneTimePasswords[seller.id]
+        save()
+      }
       return send(authPayload(seller))
     }
     if (path === '/api/auth/forgot-password/request' && req.method === 'POST') {
@@ -1982,7 +1996,9 @@ http.createServer(async (req, res) => {
     }
     if (path === '/api/auth/refresh-token' && req.method === 'POST') {
       const session = decodeToken(req) || (() => { try { return JSON.parse(Buffer.from(String(body.refreshToken || '').split('.')[1], 'base64url').toString('utf8')) } catch { return null } })()
-      if (!session?.id) return send({ error: 'Invalid refresh token.' }, 401)
+      if (!session?.id || Number(session.exp || 0) <= Math.floor(Date.now() / 1000) || session.role === 'impersonated_user') {
+        return send({ error: 'Invalid or expired refresh token.' }, 401)
+      }
       const refreshed = token(session.role || 'user', session.id)
       return send({ accessToken: refreshed, refreshToken: refreshed })
     }
@@ -2189,6 +2205,60 @@ http.createServer(async (req, res) => {
       save()
       return send({ success: true, message: 'Seller account approved.', user: seller })
     }
+    const updateBusinessTypeMatch = path.match(/^\/api\/admin\/users\/([^/]+)\/business-type$/)
+    if (updateBusinessTypeMatch && req.method === 'PATCH') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const seller = state.users.find((item) => item.id === updateBusinessTypeMatch[1])
+      if (!seller) return send({ success: false, message: 'Seller not found.' }, 404)
+      const businessTypes = Array.from(new Set((Array.isArray(body.businessType) ? body.businessType : [body.businessType])
+        .map(normalizeBusinessType)
+        .filter((value) => ['b2b', 'b2c', 'd2c'].includes(value))))
+      if (!businessTypes.length) return send({ success: false, message: 'Select at least one valid business type.' }, 400)
+      seller.businessType = businessTypes
+      seller.updatedAt = new Date().toISOString()
+      assignDefaultPlans(seller)
+      save()
+      return send({ success: true, message: 'Business type updated.', user: seller })
+    }
+    const resetUserPasswordMatch = path.match(/^\/api\/admin\/users\/([^/]+)\/reset-password$/)
+    if (resetUserPasswordMatch && req.method === 'POST') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const seller = state.users.find((item) => item.id === resetUserPasswordMatch[1])
+      if (!seller) return send({ success: false, message: 'Seller not found.' }, 404)
+      const tempPassword = `PS-${randomBytes(9).toString('base64url')}`
+      const expiresAt = Date.now() + 15 * 60 * 1000
+      state.oneTimePasswords[seller.id] = { passwordHash: hashPassword(tempPassword), expiresAt }
+      save()
+      return send({
+        success: true,
+        message: 'One-time password generated. It expires in 15 minutes.',
+        tempPassword,
+        expiresAt: new Date(expiresAt).toISOString(),
+      })
+    }
+    const impersonateUserMatch = path.match(/^\/api\/admin\/users\/([^/]+)\/impersonate$/)
+    if (impersonateUserMatch && req.method === 'POST') {
+      const adminSession = decodeToken(req)
+      if (adminSession?.role !== 'admin') return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const seller = state.users.find((item) => item.id === impersonateUserMatch[1])
+      if (!seller) return send({ success: false, message: 'Seller not found.' }, 404)
+      if (!seller.approved) return send({ success: false, message: 'Approve this seller before opening the user panel.' }, 400)
+      const expiresInSeconds = 15 * 60
+      const accessToken = token('impersonated_user', seller.id, expiresInSeconds)
+      const refreshToken = token('impersonated_user', seller.id, expiresInSeconds)
+      const expiresAt = new Date(Date.now() + expiresInSeconds * 1000).toISOString()
+      const query = new URLSearchParams({
+        token: accessToken,
+        refresh: refreshToken,
+        admin: String(adminSession.id || 'admin'),
+        expiresAt,
+      })
+      return send({
+        success: true,
+        clientUrl: `${CLIENT_PORTAL_URL}/admin-impersonation?${query.toString()}`,
+        expiresAt,
+      })
+    }
     if (path === '/api/plans' && req.method === 'GET') {
       const businessType = String(requestUrl.searchParams.get('businessType') || '').toLowerCase()
       const status = String(requestUrl.searchParams.get('status') || '').toLowerCase()
@@ -2198,11 +2268,15 @@ http.createServer(async (req, res) => {
       return send({ success: true, data: plans })
     }
     if (path === '/api/plans/assign-to-user' && req.method === 'POST') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
       const seller = state.users.find((item) => item.id === body.userId)
       const plan = state.plans.find((item) => item.id === body.planId)
-      if (!seller) return send({ error: 'Seller not found.' }, 404)
-      if (!plan) return send({ error: 'Plan not found.' }, 404)
+      if (!seller) return send({ success: false, message: 'Seller not found.' }, 404)
+      if (!plan || plan.is_active === false) return send({ success: false, message: 'Active plan not found.' }, 404)
       const businessType = body.businessType === 'b2b' ? 'b2b' : 'b2c'
+      if (normalizeBusinessType(plan.business_type) !== businessType) {
+        return send({ success: false, message: `Select a ${businessType.toUpperCase()} plan for this assignment.` }, 400)
+      }
       if (businessType === 'b2b') {
         seller.currentB2BPlanId = plan.id
         seller.currentB2BPlanName = plan.name

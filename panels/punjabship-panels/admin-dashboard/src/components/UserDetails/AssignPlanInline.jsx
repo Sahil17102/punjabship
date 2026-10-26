@@ -88,7 +88,8 @@ const AssignPlanInline = ({
     onError: (err) => {
       toast({
         title: 'Failed to assign plan',
-        description: err.message || 'Try again later.',
+        description:
+          err?.response?.data?.message || err?.response?.data?.error || err.message || 'Try again later.',
         status: 'error',
         duration: 4000,
         isClosable: true,
@@ -119,7 +120,7 @@ const AssignPlanInline = ({
           currentValue={currentB2CPlanId || currentPlanId}
           onChange={setSelectedB2CPlan}
           onAssign={() =>
-            assignPlanMutation.mutate({
+            userId && assignPlanMutation.mutate({
               userId,
               planId: selectedB2CPlan,
               businessType: 'b2c',
@@ -136,7 +137,7 @@ const AssignPlanInline = ({
           currentValue={currentB2BPlanId}
           onChange={setSelectedB2BPlan}
           onAssign={() =>
-            assignPlanMutation.mutate({
+            userId && assignPlanMutation.mutate({
               userId,
               planId: selectedB2BPlan,
               businessType: 'b2b',

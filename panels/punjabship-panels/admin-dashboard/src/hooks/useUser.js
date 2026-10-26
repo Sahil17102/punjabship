@@ -33,7 +33,8 @@ export function useApproveUser() {
     onSuccess: (data, userId) => {
       if (data?.success) {
         // userId is the variable passed to mutate, usually userId
-        queryClient.invalidateQueries(['userInfo', userId])
+        queryClient.invalidateQueries({ queryKey: ['userInfo', userId] })
+        queryClient.invalidateQueries({ queryKey: ['users-with-role-user'] })
         toast({
           title: 'User Approved',
           description: `User ID ${userId} has been successfully approved.`,
@@ -55,7 +56,11 @@ export function useApproveUser() {
     onError: (error) => {
       toast({
         title: 'Approval Failed',
-        description: error?.message || 'An error occurred while approving the user.',
+        description:
+          error?.response?.data?.message ||
+          error?.response?.data?.error ||
+          error?.message ||
+          'An error occurred while approving the user.',
         status: 'error',
         duration: 5000,
         isClosable: true,

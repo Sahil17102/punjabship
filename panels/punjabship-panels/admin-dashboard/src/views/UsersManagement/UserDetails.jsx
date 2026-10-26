@@ -844,7 +844,7 @@ export default function UserDetails() {
         publicUserId={profileData?.data?.publicId}
         onTabClick={handleTabClick}
         actionSlot={
-          isOverviewTab ? (
+          isOverviewTab && profileData?.data?.approved ? (
             <Button
               leftIcon={<FiExternalLink />}
               onClick={handleOpenClientPanel}

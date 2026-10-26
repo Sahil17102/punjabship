@@ -48,7 +48,11 @@ export async function deleteUser(userId) {
 
 export const getUserInfo = async (id) => {
   const { data } = await api.get(`/user/user-info/${id}`)
-  return data
+  // Normalize the direct and nested API response variants used by the backend.
+  const user = data?.data || data?.user || data
+  return {
+    data: user ? { ...user, userId: user.userId || user.id || id } : null,
+  }
 }
 
 export const approveUser = async (userId) => {
