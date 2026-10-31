@@ -3852,6 +3852,7 @@ http.createServer(async (req, res) => {
           const order = await createM5CShipmentOrder(seller, normalizedBody, 'b2c')
           return send({ success: true, message: order.awb_number ? 'M5C shipment created.' : 'M5C accepted the shipment; AWB is pending.', shipment: orderForPanels(order) }, 201)
         } catch (error) {
+          console.error('M5C B2C booking failed:', error)
           return send({ success: false, message: error.message || 'Could not create the M5C shipment.', missingFields: error.missingFields }, error.statusCode || 502)
         }
       }
@@ -3906,6 +3907,7 @@ http.createServer(async (req, res) => {
           const order = await createM5CShipmentOrder(seller, normalizedBody, 'b2b')
           return send({ success: true, message: order.awb_number ? 'M5C B2B shipment created.' : 'M5C accepted the B2B shipment; AWB is pending.', shipment: orderForPanels(order) }, 201)
         } catch (error) {
+          console.error('M5C B2B booking failed:', error)
           return send({ success: false, message: error.message || 'Could not create the M5C B2B shipment.', missingFields: error.missingFields }, error.statusCode || 502)
         }
       }

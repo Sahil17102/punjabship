@@ -8,6 +8,16 @@ const number = (value) => Number.isFinite(Number(value)) ? Number(value) : 0
 const positive = (value) => Number.isFinite(Number(value)) && Number(value) > 0
 const DEFAULT_BASE_URL = 'https://apiv2.m5clogs.com'
 const EUROPE_CODES = new Set(['AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU', 'IS', 'IE', 'IT', 'LV', 'LI', 'LT', 'LU', 'MT', 'NL', 'NO', 'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE', 'CH'])
+const normalizeKycType = (value) => {
+  const normalized = text(value).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+  if (!normalized) return ''
+  if (['gst', 'gstin', 'gst number', 'gstin normal'].includes(normalized)) return 'GSTIN (Normal)'
+  if (['pan', 'pan card', 'pan number'].includes(normalized)) return 'PAN Number'
+  if (['passport', 'passport number'].includes(normalized)) return 'Passport Number'
+  if (['aadhaar', 'aadhar', 'aadhaar number', 'aadhar number'].includes(normalized)) return 'Aadhaar Number'
+  if (['voter', 'voter id', 'voter identity'].includes(normalized)) return 'Voter Id'
+  return text(value)
+}
 
 const configCandidates = [...new Set([
   process.env.PUNJABSHIP_SHARED_DIR ? resolve(process.env.PUNJABSHIP_SHARED_DIR, 'm5c.env') : '',
@@ -129,7 +139,7 @@ export const mapPunjabShipOrderToM5C = (order, defaults = {}) => {
   const gstin = text(pickup.gst_number || pickup.gstNumber || seller.domesticKyc?.gstin || seller.companyInfo?.gstNumber)
   const pan = text(seller.domesticKyc?.panNumber)
   const kycNumber = configuredKyc || gstin || pan
-  const kycType = text(defaults.kycType) || (configuredKyc ? 'GST Number' : gstin ? 'GST Number' : 'PAN Number')
+  const kycType = normalizeKycType(defaults.kycType) || (configuredKyc || gstin ? 'GSTIN (Normal)' : 'PAN Number')
   const invoice = order.invoices?.[0] || {}
   const invoiceValue = number(order.order_amount || invoice.invoiceValue || items.reduce((sum, item) => sum + number(item.Amt), 0))
   return {

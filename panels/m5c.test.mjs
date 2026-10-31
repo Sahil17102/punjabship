@@ -14,9 +14,15 @@ const order = {
 test('M5C maps B2C shipment payload and validates required fields', () => {
   const payload = mapPunjabShipOrderToM5C(order)
   assert.equal(payload.ServiceCode, 'S113')
+  assert.equal(payload.KYCType, 'GSTIN (Normal)')
   assert.equal(payload.ActWeight, '1.200')
   assert.equal(payload.Descriptions[0].Amt, '5000.00')
   assert.deepEqual(validateM5COrder(payload), [])
+})
+
+test('M5C normalizes configured KYC aliases to provider enum values', () => {
+  assert.equal(mapPunjabShipOrderToM5C(order, { kycType: 'GST Number', kycNumber: '03ABCDE1234F1Z1' }).KYCType, 'GSTIN (Normal)')
+  assert.equal(mapPunjabShipOrderToM5C({ ...order, pickup: { ...order.pickup, gst_number: '' }, __seller: { domesticKyc: { panNumber: 'ABCDE1234F' } } }).KYCType, 'PAN Number')
 })
 
 test('M5C maps multi-box B2B shipments', () => {
