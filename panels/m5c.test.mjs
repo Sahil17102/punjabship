@@ -25,6 +25,12 @@ test('M5C normalizes configured KYC aliases to provider enum values', () => {
   assert.equal(mapPunjabShipOrderToM5C({ ...order, pickup: { ...order.pickup, gst_number: '' }, __seller: { domesticKyc: { panNumber: 'ABCDE1234F' } } }).KYCType, 'PAN Number')
 })
 
+test('M5C removes apostrophes that break the provider rate SQL', () => {
+  const payload = mapPunjabShipOrderToM5C({ ...order, consignee: { ...order.consignee, city: "St. John's", address: "John's Road" } })
+  assert.equal(payload.ConsigneeCity, 'St. Johns')
+  assert.equal(payload.ConsigneeAddressLine1, 'Johns Road')
+})
+
 test('M5C maps multi-box B2B shipments', () => {
   const payload = mapPunjabShipOrderToM5C({ ...order, package_weight: undefined, boxes: [{ lengthCm: 30, breadthCm: 20, heightCm: 10, weightKg: 2, quantity: 2 }], invoices: [{ invoiceNumber: 'B2B-1', invoiceValue: 8000 }], order_items: undefined })
   assert.equal(payload.NumofItems, '2')

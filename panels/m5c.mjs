@@ -4,6 +4,7 @@ import http from 'node:http'
 import https from 'node:https'
 
 const text = (value) => String(value ?? '').trim()
+const providerText = (value) => text(value).replace(/[\u2018\u2019']/g, '')
 const number = (value) => Number.isFinite(Number(value)) ? Number(value) : 0
 const positive = (value) => Number.isFinite(Number(value)) && Number(value) > 0
 const DEFAULT_BASE_URL = 'https://apiv2.m5clogs.com'
@@ -144,18 +145,18 @@ export const mapPunjabShipOrderToM5C = (order, defaults = {}) => {
   const invoiceValue = number(order.order_amount || invoice.invoiceValue || items.reduce((sum, item) => sum + number(item.Amt), 0))
   return {
     ReferenceNumber: text(order.order_number), ThirdPartyLabel: false,
-    ConsignorName: text(pickup.name || pickup.contactName || pickup.warehouse_name),
-    ConsignorContactPerson: text(pickup.name || pickup.contactName || pickup.warehouse_name),
-    ConsignorAddressLine1: text(pickup.address || pickup.address_line_1 || pickup.addressLine1),
-    ConsignorAddressLine2: text(pickup.address_line_2 || pickup.address_2 || pickup.addressLine2 || pickup.locality || pickup.city),
-    ConsignorCity: text(pickup.city), ConsignorPostCode: text(pickup.pincode || pickup.zip_code),
-    ConsignorState: text(pickup.state), ConsignorPhoneNo: text(pickup.phone || pickup.contactPhone || pickup.contactNumber),
+    ConsignorName: providerText(pickup.name || pickup.contactName || pickup.warehouse_name),
+    ConsignorContactPerson: providerText(pickup.name || pickup.contactName || pickup.warehouse_name),
+    ConsignorAddressLine1: providerText(pickup.address || pickup.address_line_1 || pickup.addressLine1),
+    ConsignorAddressLine2: providerText(pickup.address_line_2 || pickup.address_2 || pickup.addressLine2 || pickup.locality || pickup.city),
+    ConsignorCity: providerText(pickup.city), ConsignorPostCode: text(pickup.pincode || pickup.zip_code),
+    ConsignorState: providerText(pickup.state), ConsignorPhoneNo: text(pickup.phone || pickup.contactPhone || pickup.contactNumber),
     KYCType: kycType, KYCNo: kycNumber,
-    ConsigneeName: text(consignee.name), ConsigneeContactPerson: text(consignee.contact_person || consignee.name),
-    ConsigneeAddressLine1: text(consignee.address_line_1 || consignee.address),
-    ConsigneeAddressLine2: text(consignee.address_line_2 || consignee.address_2 || consignee.locality || consignee.city),
-    ConsigneeCity: text(consignee.city), ConsigneeZipCode: text(consignee.pincode), ConsigneeState: text(consignee.state || 'NA'),
-    ConsigneeCountry: text(consignee.country), ConsigneePhoneNo: text(consignee.phone), ConsigneeEmaild: text(consignee.email),
+    ConsigneeName: providerText(consignee.name), ConsigneeContactPerson: providerText(consignee.contact_person || consignee.name),
+    ConsigneeAddressLine1: providerText(consignee.address_line_1 || consignee.address),
+    ConsigneeAddressLine2: providerText(consignee.address_line_2 || consignee.address_2 || consignee.locality || consignee.city),
+    ConsigneeCity: providerText(consignee.city), ConsigneeZipCode: text(consignee.pincode), ConsigneeState: providerText(consignee.state || 'NA'),
+    ConsigneeCountry: providerText(consignee.country), ConsigneePhoneNo: text(consignee.phone), ConsigneeEmaild: text(consignee.email),
     ServiceCode: text(order.__m5cServiceCode), GoodsDesc: text(defaults.goodsDescription || order.goods_description || 'NDox'),
     NumofItems: String(packages.length), ActWeight: actualWeight.toFixed(3), VolWeights: packages,
     CustomsValue: invoiceValue.toFixed(2), CustomsCurrencyCode: text(order.currency_code || defaults.currencyCode || 'INR'),
