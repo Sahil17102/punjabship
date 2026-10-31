@@ -76,6 +76,16 @@ export async function saveDillikingCredentials(credentials) {
   return response.data
 }
 
+export async function fetchM5CStatus() {
+  const response = await api.get('/admin/integrations/m5c/status')
+  return response.data?.data || response.data
+}
+
+export async function saveM5CCredentials(credentials) {
+  const response = await api.post('/admin/integrations/m5c/credentials', credentials)
+  return response.data
+}
+
 export async function fetchBulkTracking(awbs = []) {
   try {
     const cleaned = awbs.map((awb) => String(awb || '').trim()).filter(Boolean)

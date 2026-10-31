@@ -267,7 +267,7 @@ export default function SourceOrderCourierDrawer({
       })
       return
     }
-    if (data.integrationType === 'skylink' && !String(data.addressLine2 || '').trim()) {
+    if (['skylink', 'm5c'].includes(String(data.integrationType)) && !String(data.addressLine2 || '').trim()) {
       setError('addressLine2', {
         type: 'manual',
         message: 'Address Line 2 is required for Skylink international shipments.',

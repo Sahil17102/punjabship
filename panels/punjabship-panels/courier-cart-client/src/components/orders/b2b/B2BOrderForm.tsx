@@ -85,7 +85,7 @@ export type B2BFormData = {
   courierCost?: number | null // Estimated courier cost from serviceability (what platform pays courier)
   forwardCharges?: number
   otherCharges?: number
-  integrationType?: 'delhivery' | 'ekart' | 'shadowfax' | 'xpressbees' | 'amazon' | 'indiapost' | 'icarry'
+  integrationType?: 'delhivery' | 'ekart' | 'shadowfax' | 'xpressbees' | 'amazon' | 'indiapost' | 'icarry' | 'm5c'
   amazonRequestToken?: string | null
   amazonRateId?: string | null
   amazonServiceId?: string | null
@@ -304,6 +304,7 @@ export default function B2BOrderForm({ onClose }: { onClose?: () => void }) {
           })) ?? [],
         courier_id: Number(data.courierPartnerId),
         courier_partner: data.courierPartner,
+        courier_option_key: data.courierOptionKey,
         is_insurance: data.isInsurance ? 1 : 0,
         is_rto_different: data.isRtoSame === false ? 'yes' : 'no',
         request_auto_pickup: 'no',

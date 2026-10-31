@@ -142,6 +142,7 @@ export interface B2COrder {
     | 'skylink'
     | 'flightgo'
     | 'dilliking'
+    | 'm5c'
   pincode: string
 
   // Product info

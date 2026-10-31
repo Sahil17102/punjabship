@@ -17,6 +17,7 @@ import { createSMECourierClient, extractSMEShipment, mapPunjabShipOrderToSME, va
 import { createSkylinkClient, validateSkylinkOrder } from './skylink.mjs'
 import { createFlightGoClient, validateFlightGoOrder } from './flightgo.mjs'
 import { createDillikingClient, dillikingCountryName, dillikingServicesForCountry, mapDillikingTracking, validateDillikingOrder } from './dilliking.mjs'
+import { createM5CClient } from './m5c.mjs'
 import { createStateStore } from './state-store.mjs'
 import { isMailConfigured, mailStatus, sendOtpEmail, sendPasswordResetEmail } from './mailer.mjs'
 import { csvBoolean, csvHeaderKey, csvNumber, parseCsvObjects } from './csv-imports.mjs'
@@ -54,6 +55,7 @@ const smeCourier = createSMECourierClient()
 const skylinkCourier = createSkylinkClient()
 const flightGoCourier = createFlightGoClient()
 const dillikingCourier = createDillikingClient()
+const m5cCourier = createM5CClient()
 const otpRequestAttempts = new Map()
 const globalPostalData = (() => {
   try {
@@ -107,6 +109,7 @@ const SKYLINK_SERVICE_CATALOG = [
 ]
 const FLIGHTGO_SERVICE = { courierId: 99004, serviceCode: 'FLIGHTGO', name: 'FlightGo Express' }
 const DILLIKING_SERVICE = { courierId: 99005, serviceCode: 'DILLIKING', name: 'Dilliking International' }
+const M5C_SERVICE = { courierId: 99006, serviceCode: 'M5C', name: 'M5C Logistics' }
 const DEFAULT_B2C_ZONES = [
   { id: 'b2c-local', code: 'A', name: 'Local', description: 'Same city / nearby pincode cluster', business_type: 'b2c', is_active: true },
   { id: 'b2c-state', code: 'B', name: 'Within State', description: 'Pickup and delivery in the same state', business_type: 'b2c', is_active: true },
@@ -356,6 +359,39 @@ const defaultDillikingB2BMatrixRates = () => {
     service_code: DILLIKING_SERVICE.serviceCode, plan_id: planId, ratePerKg: DILLIKING_B2B_RATES[destination.name], rate_per_kg: DILLIKING_B2B_RATES[destination.name],
     min_charge: DILLIKING_B2B_RATES[destination.name] * 0.5, min_charge_weight: 0.5, volumetric_factor: 5000, is_active: true,
     rate_note: 'Editable Dilliking starter matrix rate. Direct B2B booking is not enabled.',
+  }))))
+}
+
+const M5C_B2C_RATES = { Canada: 1500, Europe: 1650, Australia: 1800 }
+const M5C_B2C_EXTRA = { Canada: 600, Europe: 650, Australia: 700 }
+const M5C_B2B_RATES = { Canada: 3000, Europe: 3300, Australia: 3600 }
+const M5C_RATE_NOTE = 'Editable PunjabShip selling rate. M5C provides live service codes and production AWB booking, but its documented API does not provide a rate endpoint.'
+const defaultM5CRates = () => [{
+  id: 'rate-m5c-b2c', plan_id: 'starter-b2c', businessType: 'b2c',
+  courier_id: M5C_SERVICE.courierId, courier_name: M5C_SERVICE.name, service_provider: 'm5c',
+  service_code: M5C_SERVICE.serviceCode, mode: 'air', min_weight: 0.5, cod_charges: 0, cod_percent: 0,
+  other_charges: 0, is_active: true, rate_note: M5C_RATE_NOTE,
+  rates: Object.fromEntries(Object.entries(M5C_B2C_RATES).map(([zone, forward]) => [zone, { forward, rto: 0 }])),
+  zone_slabs: Object.fromEntries(Object.entries(M5C_B2C_RATES).map(([zone, forward]) => [zone, makeSlab(forward, 0, M5C_B2C_EXTRA[zone], 0)])),
+}, {
+  id: 'rate-m5c-b2b', plan_id: 'starter-b2b', businessType: 'b2b',
+  courier_id: M5C_SERVICE.courierId, courier_name: M5C_SERVICE.name, service_provider: 'm5c',
+  service_code: M5C_SERVICE.serviceCode, mode: 'air', min_weight: 0.5, cod_charges: 0, cod_percent: 0,
+  other_charges: 0, is_active: true, rate_note: M5C_RATE_NOTE,
+  rates: Object.fromEntries(Object.entries(M5C_B2B_RATES).map(([zone, forward_per_kg]) => [zone, { forward_per_kg, rto_per_kg: 0, min_weight: 0.5 }])),
+}]
+
+const defaultM5CB2BMatrixRates = () => {
+  const origins = DEFAULT_B2B_ZONES.filter((zone) => zone.country === 'India')
+  const destinations = DEFAULT_B2B_ZONES.filter((zone) => Object.hasOwn(M5C_B2B_RATES, zone.name))
+  const planIds = [...new Set(['starter-b2b', ...(state?.plans || []).filter((plan) => String(plan.business_type || '').toLowerCase() === 'b2b').map((plan) => String(plan.id))])]
+  return planIds.flatMap((planId) => origins.flatMap((origin) => destinations.map((destination) => ({
+    id: `m5c-b2b-rate-${planId}-${origin.code.toLowerCase()}-${destination.code.toLowerCase()}`,
+    originZoneId: origin.id, origin_zone_id: origin.id, destinationZoneId: destination.id, destination_zone_id: destination.id,
+    courier_id: M5C_SERVICE.courierId, courier_name: M5C_SERVICE.name, service_provider: 'm5c', service_code: M5C_SERVICE.serviceCode, plan_id: planId,
+    ratePerKg: M5C_B2B_RATES[destination.name], rate_per_kg: M5C_B2B_RATES[destination.name],
+    min_charge: M5C_B2B_RATES[destination.name] * 0.5, min_charge_weight: 0.5, volumetric_factor: 5000, is_active: true,
+    rate_note: M5C_RATE_NOTE,
   }))))
 }
 
@@ -671,7 +707,7 @@ for (let index = 0; index < state.zones.length; index += 1) {
     stateNeedsSave = true
   }
 }
-for (const defaultRate of [defaultB2cRate(), defaultB2bRate(), ...defaultSkylinkRates(), ...defaultFlightGoRates(), ...defaultDillikingRates()]) {
+for (const defaultRate of [defaultB2cRate(), defaultB2bRate(), ...defaultSkylinkRates(), ...defaultFlightGoRates(), ...defaultDillikingRates(), ...defaultM5CRates()]) {
   const existingRate = state.shippingRates.find((item) => item.id === defaultRate.id)
   if (!existingRate) {
     state.shippingRates.push(defaultRate)
@@ -733,6 +769,12 @@ for (const rate of defaultFlightGoB2BMatrixRates()) {
   }
 }
 for (const rate of defaultDillikingB2BMatrixRates()) {
+  if (!state.b2bZoneRates.some((item) => item.id === rate.id)) {
+    state.b2bZoneRates.push(rate)
+    stateNeedsSave = true
+  }
+}
+for (const rate of defaultM5CB2BMatrixRates()) {
   if (!state.b2bZoneRates.some((item) => item.id === rate.id)) {
     state.b2bZoneRates.push(rate)
     stateNeedsSave = true
@@ -1466,9 +1508,19 @@ const manualCourierQuote = (courier, rate, body) => {
   const originCountryCode = normalizeCountryCode(body.pickupCountryCode || body.pickup_country_code || 'IN')
   const destinationCountryCode = destinationCountryCodeFor(body, destination)
   if (!courierSupportsRoute(courier, origin, destination, shipmentType, paymentType, weightKg, originCountryCode, destinationCountryCode)) return null
-  const zone = destinationCountryCode === 'IN'
+  let zone = destinationCountryCode === 'IN'
     ? (shipmentType === 'b2b' ? b2bZoneFor(destination) : b2cZoneFor(origin, destination))
     : zoneForShipmentDestination(shipmentType, destination, destinationCountryCode)
+  if (destinationCountryCode !== 'IN' && zone && !rate.rates?.[zone.name]) {
+    const countryCode = normalizeCountryCode(destinationCountryCode)
+    const countryName = countryNameFromCode(countryCode).toLowerCase()
+    zone = state.zones.find((candidate) => (
+      normalizeBusinessType(candidate.business_type) === shipmentType &&
+      normalizeZoneCountries(candidate).some((country) => [countryCode.toLowerCase(), countryName].includes(String(country).trim().toLowerCase())) &&
+      zoneAllowsPostalCode(candidate, countryCode, destination) &&
+      Boolean(rate.rates?.[candidate.name])
+    )) || zone
+  }
   if (!zone) return null
   const chargeableWeight = Math.max(weightKg, Number(rate.min_weight || courier.minWeightKg || 0.5))
   const zoneRate = rate.rates?.[zone.name] || {}
@@ -1583,6 +1635,116 @@ const getDillikingIntegrationReadiness = () => {
         ? 'Dilliking production AWB booking and tracking are connected.'
         : 'Sandbox is connected, but user bookings stay disabled until production credentials are configured.',
   }
+}
+const getM5CIntegrationReadiness = () => {
+  const configured = m5cCourier.isConfigured()
+  return {
+    configured, bookingReady: configured,
+    status: configured ? 'Production connected' : 'Setup needed',
+    note: configured
+      ? 'M5C production services and real B2C/B2B AWB booking are connected.'
+      : 'Add and verify the M5C account code, username, password and access key.',
+  }
+}
+const m5cQuotesFor = async (body) => {
+  const shipmentType = normalizeBusinessType(body.shipment_type || body.shipmentType)
+  const origin = String(body.origin || body.pickupPincode || body.pickup_pincode || '')
+  const destination = String(body.destination || body.deliveryPincode || body.delivery_pincode || '')
+  const destinationCountryCode = destinationCountryCodeFor(body, destination)
+  if (!['b2b', 'b2c'].includes(shipmentType) || destinationCountryCode === 'IN') return []
+  const services = await m5cCourier.servicesForCountry(destinationCountryCode)
+  if (!services.length) return []
+  const rate = state.shippingRates.find((item) => (
+    Number(item.courier_id) === M5C_SERVICE.courierId &&
+    normalizeBusinessType(item.businessType) === shipmentType &&
+    item.is_active === true &&
+    (!body.plan_id || String(item.plan_id) === String(body.plan_id))
+  )) || state.shippingRates.find((item) => Number(item.courier_id) === M5C_SERVICE.courierId && normalizeBusinessType(item.businessType) === shipmentType && item.is_active === true)
+  const destinationZone = zoneForShipmentDestination(shipmentType, destination, destinationCountryCode)
+  if (!rate || !destinationZone) return []
+  const weightKg = Math.max(Number(body.weight || 0) / 1000, Number(rate.min_weight || 0.5))
+  let freight = shipmentType === 'b2c' ? calculateB2cFreight(rate, destinationZone.name, weightKg) : null
+  if (shipmentType === 'b2b') {
+    const originCountryCode = normalizeCountryCode(body.pickupCountryCode || body.pickup_country_code || 'IN')
+    const originZone = originCountryCode === 'IN' ? b2bZoneFor(origin) : zoneForCountry('b2b', originCountryCode, origin)
+    const matrixRate = originZone ? state.b2bZoneRates.find((item) => (
+      String(item.originZoneId || item.origin_zone_id) === String(originZone.id) &&
+      String(item.destinationZoneId || item.destination_zone_id) === String(destinationZone.id) &&
+      Number(item.courier_id) === M5C_SERVICE.courierId &&
+      (!rate.plan_id || !item.plan_id || String(item.plan_id) === String(rate.plan_id))
+    )) : null
+    const perKg = Number(matrixRate?.rate_per_kg ?? matrixRate?.ratePerKg ?? rate.rates?.[destinationZone.name]?.forward_per_kg ?? 0)
+    freight = weightKg * perKg
+  }
+  if (!Number.isFinite(freight) || freight <= 0) return []
+  const prepaid = String(body.payment_type || (Number(body.cod) ? 'cod' : 'prepaid')).toLowerCase() !== 'cod'
+  const beforeGst = Number((freight + Number(rate.other_charges || 0)).toFixed(2))
+  const gst = Number((beforeGst * 0.18).toFixed(2))
+  const total = Number((beforeGst + gst).toFixed(2))
+  const readiness = getM5CIntegrationReadiness()
+  const canBook = readiness.bookingReady && prepaid
+  return services.map((service, index) => ({
+    id: M5C_SERVICE.courierId + index, courier_id: M5C_SERVICE.courierId,
+    name: `${M5C_SERVICE.name} - ${service.name}`, displayName: `${M5C_SERVICE.name} - ${service.name}`,
+    integration_type: 'm5c', serviceProvider: 'm5c', service: service.code, service_code: service.code, mode: 'air',
+    courier_option_key: `m5c:${encodeURIComponent(service.code)}`,
+    rate: Number(freight.toFixed(2)), courier_cost_estimate: total, chargeable_weight: Number((weightKg * 1000).toFixed(0)),
+    other_charges: Number(rate.other_charges || 0), total_charges_without_gst: beforeGst, gst_percent: 18, gst_amount: gst,
+    total_charges_with_gst: total, total_charges: total, wallet_debit_amount: total,
+    booking_available: canBook, can_book: canBook,
+    booking_blocked_reason: canBook ? null : !prepaid ? 'M5C international booking supports prepaid shipments only.' : readiness.note,
+    rate_status: 'admin_rate', rate_note: rate.rate_note,
+    approxZone: { id: destinationZone.id, code: destinationZone.code, name: destinationZone.name, country: countryNameFromCode(destinationCountryCode), countries: normalizeZoneCountries(destinationZone) },
+    zone_id: destinationZone.id, provider_serviceability: { provider: M5C_SERVICE.name, service: service.name, service_code: service.code, booking_available: canBook, can_book: canBook },
+  }))
+}
+const createM5CShipmentOrder = async (seller, normalizedBody, type) => {
+  if (!m5cCourier.isBookingReady()) throw Object.assign(new Error('M5C production credentials must be configured by an administrator before booking.'), { statusCode: 503 })
+  if (String(normalizedBody.payment_type || normalizedBody.order_type || 'prepaid').toLowerCase() === 'cod') throw Object.assign(new Error('M5C international booking supports prepaid shipments only.'), { statusCode: 400 })
+  if (state.orders.some((order) => String(order.order_number) === String(normalizedBody.order_number))) throw Object.assign(new Error('Order number already exists.'), { statusCode: 409 })
+  const destinationCode = normalizeCountryCode(normalizedBody.consignee?.country_code || normalizedBody.country_code)
+  const optionKey = String(normalizedBody.courier_option_key || '')
+  let serviceCode = ''
+  try { serviceCode = decodeURIComponent(optionKey.startsWith('m5c:') ? optionKey.slice('m5c:'.length) : '') } catch { serviceCode = '' }
+  const services = await m5cCourier.servicesForCountry(destinationCode)
+  if (!services.some((service) => service.code === serviceCode)) throw Object.assign(new Error('The selected M5C service is no longer valid. Refresh courier rates and select an M5C service again.'), { statusCode: 409 })
+  const selectedPickup = (state.pickupAddresses[seller.id] || []).find((address) => String(address.pickupId || address.id) === String(normalizedBody.pickup_location_id || ''))
+  const sourcePickup = { ...(selectedPickup?.pickup || {}), ...(normalizedBody.pickup || {}) }
+  const providerOrder = {
+    ...normalizedBody,
+    pickup: {
+      ...sourcePickup, name: sourcePickup.name || sourcePickup.contactName, phone: sourcePickup.phone || sourcePickup.contactPhone || sourcePickup.contactNumber,
+      warehouse_name: sourcePickup.warehouse_name || sourcePickup.addressNickname || seller.companyInfo?.businessName,
+      address: sourcePickup.address || sourcePickup.address_line_1 || sourcePickup.addressLine1,
+      address_line_2: sourcePickup.address_line_2 || sourcePickup.addressLine2 || sourcePickup.locality || sourcePickup.city,
+      pincode: sourcePickup.pincode || sourcePickup.zip_code,
+    },
+    __seller: seller, __m5cServiceCode: serviceCode,
+  }
+  const providerResult = await m5cCourier.createShipment(providerOrder)
+  let labelUrl = null
+  if (providerResult.label && isStorageConfigured()) {
+    const label = Buffer.from(providerResult.label, 'base64')
+    const labelKey = createObjectKey({ ownerId: seller.id, folder: 'shipping-labels', filename: `m5c-${providerResult.awb || normalizedBody.order_number}.pdf` })
+    await putObject({ key: labelKey, body: label, contentType: 'application/pdf', metadata: { provider: 'm5c', awb: providerResult.awb || '' } })
+    labelUrl = labelKey
+  }
+  const now = new Date().toISOString()
+  const booked = Boolean(providerResult.awb)
+  const order = {
+    ...normalizedBody, id: `m5c-${randomUUID()}`, order_id: normalizedBody.order_number, user_id: seller.id, type,
+    integration_type: 'm5c', courier_partner: M5C_SERVICE.name, courier_id: M5C_SERVICE.courierId,
+    awb_number: providerResult.awb, label_url: labelUrl, status: booked ? 'shipment_created' : 'booking_accepted',
+    order_status: booked ? 'shipment_created' : 'booking_accepted', provider: 'm5c', provider_service: serviceCode,
+    provider_last_status: providerResult.description || (booked ? 'Shipment created' : 'M5C accepted the shipment; AWB is pending'),
+    provider_response: { status: providerResult.status, description: providerResult.description, awb: providerResult.awb },
+    m5c_booking_status: booked ? 'booked' : 'accepted_pending_awb', buyer_name: normalizedBody.consignee?.name || '',
+    buyer_phone: normalizedBody.consignee?.phone || '', customer_name: normalizedBody.consignee?.name || '', customer_phone: normalizedBody.consignee?.phone || '',
+    created_at: now, updated_at: now,
+  }
+  state.orders.unshift(order)
+  await stateStore.save(state)
+  return order
 }
 const dillikingKycForSeller = async (seller) => {
   const kyc = seller?.domesticKyc || {}
@@ -1893,7 +2055,7 @@ http.createServer(async (req, res) => {
       : JSON.parse(raw.toString('utf8'))
     console.log(req.method, path)
 
-    if (path === '' || path === '/api/health') return send({ success: true, mode: 'punjabship-demo-api', storage: stateStore.mode, integrations: { shipglobal: { configured: shipGlobal.isConfigured(), service: SHIPGLOBAL_SERVICE }, smecourier: { configured: smeCourier.isConfigured(), service: smeCourier.serviceCode }, skylink: { configured: skylinkCourier.isConfigured(), bookingReady: skylinkCourier.isBookingReady() }, flightgo: { configured: flightGoCourier.isConfigured(), bookingReady: flightGoCourier.isBookingReady(), environment: flightGoCourier.defaults.environment }, dilliking: { configured: dillikingCourier.isConfigured(), bookingReady: getDillikingIntegrationReadiness().bookingReady, environment: dillikingCourier.defaults.environment }, email: mailStatus(), objectStorage: storageStatus() } })
+    if (path === '' || path === '/api/health') return send({ success: true, mode: 'punjabship-demo-api', storage: stateStore.mode, integrations: { shipglobal: { configured: shipGlobal.isConfigured(), service: SHIPGLOBAL_SERVICE }, smecourier: { configured: smeCourier.isConfigured(), service: smeCourier.serviceCode }, skylink: { configured: skylinkCourier.isConfigured(), bookingReady: skylinkCourier.isBookingReady() }, flightgo: { configured: flightGoCourier.isConfigured(), bookingReady: flightGoCourier.isBookingReady(), environment: flightGoCourier.defaults.environment }, dilliking: { configured: dillikingCourier.isConfigured(), bookingReady: getDillikingIntegrationReadiness().bookingReady, environment: dillikingCourier.defaults.environment }, m5c: { configured: m5cCourier.isConfigured(), bookingReady: m5cCourier.isBookingReady() }, email: mailStatus(), objectStorage: storageStatus() } })
     if (path === '/api/auth/request-otp' && req.method === 'POST') {
       const email = String(body.email || '').trim().toLowerCase()
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return send({ error: 'Enter a valid email address.' }, 400)
@@ -2362,6 +2524,24 @@ http.createServer(async (req, res) => {
         return send({ success: true, message: 'Dilliking credentials verified and saved securely.', data: getDillikingIntegrationReadiness() })
       } catch (error) {
         return send({ success: false, message: error.message || 'Could not configure Dilliking.' }, error.statusCode || 502)
+      }
+    }
+    if (path === '/api/admin/integrations/m5c/status' && req.method === 'GET') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      const readiness = getM5CIntegrationReadiness()
+      let services = []
+      if (readiness.configured) {
+        try { services = await m5cCourier.listServices() } catch { /* status remains available if provider service-list is temporarily down */ }
+      }
+      return send({ success: true, data: { provider: M5C_SERVICE.name, ...readiness, liveBookingEnabled: readiness.bookingReady, apiBaseUrl: m5cCourier.apiBaseUrl, credentialsSource: 'server_environment', settings: m5cCourier.defaults, services } })
+    }
+    if (path === '/api/admin/integrations/m5c/credentials' && req.method === 'POST') {
+      if (!isAdminRequest(req)) return send({ success: false, message: 'Administrator authentication required.' }, 401)
+      try {
+        await m5cCourier.configure({ accountCode: body.accountCode, username: body.username, password: body.password, accessKey: body.accessKey, baseUrl: body.baseUrl, kycType: body.kycType, kycNumber: body.kycNumber, goodsDescription: body.goodsDescription, currencyCode: body.currencyCode })
+        return send({ success: true, message: 'M5C production credentials verified and saved securely.', data: getM5CIntegrationReadiness() })
+      } catch (error) {
+        return send({ success: false, message: error.message || 'Could not configure M5C.' }, error.statusCode || 502)
       }
     }
     const adminKycMatch = path.match(/^\/api\/admin\/users\/([^/]+)\/kyc$/)
@@ -3159,6 +3339,11 @@ http.createServer(async (req, res) => {
           isEnabled: dillikingReadiness.bookingReady, businessType: ['b2c', 'b2b'], isIntegration: true, directB2bBookingUnavailable: businessType === 'b2b',
           integrationConfigured: dillikingReadiness.configured, integrationReady: dillikingReadiness.bookingReady, integrationStatus: dillikingReadiness.status,
           integrationNote: businessType === 'b2b' ? 'Editable matrix rate only; direct Dilliking B2B booking is not enabled.' : dillikingReadiness.note })
+        const m5cReadiness = getM5CIntegrationReadiness()
+        couriers.push({ id: M5C_SERVICE.courierId, courierId: M5C_SERVICE.courierId, name: M5C_SERVICE.name, displayName: M5C_SERVICE.name,
+          serviceCode: M5C_SERVICE.serviceCode, serviceProvider: 'm5c', service_provider: 'm5c', mode: 'air',
+          isEnabled: m5cReadiness.bookingReady, businessType: ['b2c', 'b2b'], isIntegration: true, directB2bBookingUnavailable: false,
+          integrationConfigured: m5cReadiness.configured, integrationReady: m5cReadiness.bookingReady, integrationStatus: m5cReadiness.status, integrationNote: m5cReadiness.note })
       }
       const provider = String(requestUrl.searchParams.get('serviceProvider') || '').trim().toLowerCase()
       const search = String(requestUrl.searchParams.get('search') || '').trim().toLowerCase()
@@ -3171,6 +3356,7 @@ http.createServer(async (req, res) => {
       const skylinkReadiness = getSkylinkIntegrationReadiness()
       const flightGoReadiness = getFlightGoIntegrationReadiness()
       const dillikingReadiness = getDillikingIntegrationReadiness()
+      const m5cReadiness = getM5CIntegrationReadiness()
       return send({ success: true, data: [{
         serviceProvider: 'smecourier', displayName: 'SME Courier • FedEx Direct', totalCouriers: 1,
         enabledCouriers: readiness.bookingReady ? 1 : 0, isEnabled: readiness.bookingReady,
@@ -3187,6 +3373,10 @@ http.createServer(async (req, res) => {
         serviceProvider: 'dilliking', displayName: DILLIKING_SERVICE.name, totalCouriers: 1,
         enabledCouriers: dillikingReadiness.bookingReady ? 1 : 0, isEnabled: dillikingReadiness.bookingReady,
         statusLabel: dillikingReadiness.status, managedByIntegration: true, note: dillikingReadiness.note,
+      }, {
+        serviceProvider: 'm5c', displayName: M5C_SERVICE.name, totalCouriers: 1,
+        enabledCouriers: m5cReadiness.bookingReady ? 1 : 0, isEnabled: m5cReadiness.bookingReady,
+        statusLabel: m5cReadiness.status, managedByIntegration: true, note: m5cReadiness.note,
       }] })
     }
     if (path === '/api/couriers/full-list' || path === '/api/admin/couriers/list' || path === '/api/couriers/list') {
@@ -3220,6 +3410,11 @@ http.createServer(async (req, res) => {
           isEnabled: dillikingReadiness.bookingReady, businessType: ['b2c', 'b2b'], isIntegration: true, directB2bBookingUnavailable: businessType === 'b2b',
           integrationConfigured: dillikingReadiness.configured, integrationReady: dillikingReadiness.bookingReady, integrationStatus: dillikingReadiness.status,
           integrationNote: businessType === 'b2b' ? 'Editable matrix rate only; direct Dilliking B2B booking is not enabled.' : dillikingReadiness.note })
+        const m5cReadiness = getM5CIntegrationReadiness()
+        couriers.push({ id: M5C_SERVICE.courierId, courierId: M5C_SERVICE.courierId, name: M5C_SERVICE.name, displayName: M5C_SERVICE.name,
+          serviceCode: M5C_SERVICE.serviceCode, serviceProvider: 'm5c', service_provider: 'm5c', mode: 'air',
+          isEnabled: m5cReadiness.bookingReady, businessType: ['b2c', 'b2b'], isIntegration: true, directB2bBookingUnavailable: false,
+          integrationConfigured: m5cReadiness.configured, integrationReady: m5cReadiness.bookingReady, integrationStatus: m5cReadiness.status, integrationNote: m5cReadiness.note })
       }
       return send({ success: true, data: couriers })
     }
@@ -3486,7 +3681,15 @@ http.createServer(async (req, res) => {
           }))
         }
       }
-      return send({ success: true, data: [...manualQuotes, ...(includeShipGlobal ? [courier] : []), ...(includeSME ? [smeOption] : []), ...skylinkQuotes, ...flightGoQuotes, ...dillikingQuotes] })
+      let m5cQuotes = []
+      if (m5cCourier.isConfigured()) {
+        try {
+          m5cQuotes = await m5cQuotesFor({ ...body, shipment_type: path.includes('b2b-rate-quotes') ? 'b2b' : body.shipment_type })
+        } catch (error) {
+          m5cQuotes = [{ id: M5C_SERVICE.courierId, courier_id: M5C_SERVICE.courierId, name: M5C_SERVICE.name, displayName: M5C_SERVICE.name, integration_type: 'm5c', serviceProvider: 'm5c', courier_option_key: 'm5c:unavailable', booking_available: false, can_book: false, booking_blocked_reason: error.message || 'M5C services are temporarily unavailable.', provider_serviceability: { provider: M5C_SERVICE.name, booking_available: false, can_book: false } }]
+        }
+      }
+      return send({ success: true, data: [...manualQuotes, ...(includeShipGlobal ? [courier] : []), ...(includeSME ? [smeOption] : []), ...skylinkQuotes, ...flightGoQuotes, ...dillikingQuotes, ...m5cQuotes] })
     }
     if (path === '/api/orders/check-order-number' && req.method === 'GET') {
       const orderNumber = String(requestUrl.searchParams.get('orderNumber') || '').trim().toLowerCase()
@@ -3644,6 +3847,14 @@ http.createServer(async (req, res) => {
         await stateStore.save(state)
         return send({ success: true, message: 'Dilliking shipment created.', shipment: orderForPanels(order), providerResponse: providerResult.data }, 201)
       }
+      if (String(normalizedBody.integration_type || '').toLowerCase() === 'm5c' || String(normalizedBody.courier_option_key || '').toLowerCase().startsWith('m5c:')) {
+        try {
+          const order = await createM5CShipmentOrder(seller, normalizedBody, 'b2c')
+          return send({ success: true, message: order.awb_number ? 'M5C shipment created.' : 'M5C accepted the shipment; AWB is pending.', shipment: orderForPanels(order) }, 201)
+        } catch (error) {
+          return send({ success: false, message: error.message || 'Could not create the M5C shipment.', missingFields: error.missingFields }, error.statusCode || 502)
+        }
+      }
       if (!isShipGlobalOrder(normalizedBody)) return send({ success: false, message: 'Select ShipGlobal as the courier partner for live booking.' }, 400)
       if (!shipGlobal.isConfigured()) return send({ success: false, message: 'ShipGlobal production credentials are not configured yet.' }, 503)
       if (state.orders.some((order) => String(order.order_number) === String(normalizedBody.order_number))) return send({ success: false, message: 'Order number already exists.' }, 409)
@@ -3690,7 +3901,15 @@ http.createServer(async (req, res) => {
       const validation = validateOrderPayload(body, 'b2b')
       if (validation.errors.length) return send({ success: false, message: validation.errors[0], errors: validation.errors }, 400)
       const normalizedBody = withNormalizedOrderCountry(body, validation)
-      if (!isManualCourierOrder(normalizedBody)) return send({ success: false, message: 'Select PunjabShip Manual for B2B booking.' }, 400)
+      if (String(normalizedBody.integration_type || '').toLowerCase() === 'm5c' || String(normalizedBody.courier_option_key || '').toLowerCase().startsWith('m5c:')) {
+        try {
+          const order = await createM5CShipmentOrder(seller, normalizedBody, 'b2b')
+          return send({ success: true, message: order.awb_number ? 'M5C B2B shipment created.' : 'M5C accepted the B2B shipment; AWB is pending.', shipment: orderForPanels(order) }, 201)
+        } catch (error) {
+          return send({ success: false, message: error.message || 'Could not create the M5C B2B shipment.', missingFields: error.missingFields }, error.statusCode || 502)
+        }
+      }
+      if (!isManualCourierOrder(normalizedBody)) return send({ success: false, message: 'Select PunjabShip Manual or M5C Logistics for B2B booking.' }, 400)
       const { order, shipment } = createManualShipmentOrder(seller, normalizedBody, 'b2b')
       await stateStore.save(state)
       return send({ success: true, message: 'Manual B2B shipment booked.', shipment: orderForPanels(order), manualShipment: shipment }, 201)

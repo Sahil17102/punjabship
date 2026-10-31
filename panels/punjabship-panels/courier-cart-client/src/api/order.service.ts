@@ -243,6 +243,7 @@ export type CreateB2BShipmentParams = {
 
   courier_id: number
   courier_partner?: string
+  courier_option_key?: string
   is_insurance?: 0 | 1
   is_rto_different?: 'yes' | 'no'
   rto?: {

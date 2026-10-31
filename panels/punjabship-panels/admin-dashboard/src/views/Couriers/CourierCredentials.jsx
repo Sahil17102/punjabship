@@ -16,7 +16,7 @@ import {
 import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Link as RouterLink } from 'react-router-dom'
-import { fetchSMECourierStatus, saveSMECourierCredentials, fetchSkylinkStatus, saveSkylinkCredentials, fetchFlightGoStatus, saveFlightGoCredentials, fetchDillikingStatus, saveDillikingCredentials } from 'services/order.service'
+import { fetchSMECourierStatus, saveSMECourierCredentials, fetchSkylinkStatus, saveSkylinkCredentials, fetchFlightGoStatus, saveFlightGoCredentials, fetchDillikingStatus, saveDillikingCredentials, fetchM5CStatus, saveM5CCredentials } from 'services/order.service'
 import {
   useBookDelhiveryLtlLastMileAppointment,
   useCancelDelhiveryLtlPickupRequest,
@@ -66,6 +66,9 @@ const CourierCredentials = () => {
   const [dillikingStatus, setDillikingStatus] = useState(null)
   const [dillikingSaving, setDillikingSaving] = useState(false)
   const [dillikingCredentials, setDillikingCredentials] = useState({ email: '', password: '', environment: 'production', pcsType: 'SPX' })
+  const [m5cStatus, setM5CStatus] = useState(null)
+  const [m5cSaving, setM5CSaving] = useState(false)
+  const [m5cCredentials, setM5CCredentials] = useState({ accountCode: '', username: '', password: '', accessKey: '', kycType: 'GST Number', kycNumber: '', goodsDescription: 'NDox', currencyCode: 'INR' })
   const bookDelhiveryLtlLastMileAppointment = useBookDelhiveryLtlLastMileAppointment()
   const cancelDelhiveryLtlPickupRequest = useCancelDelhiveryLtlPickupRequest()
   const cancelDelhiveryLtlShipment = useCancelDelhiveryLtlShipment()
@@ -97,6 +100,10 @@ const CourierCredentials = () => {
       setDillikingStatus(status)
       setDillikingCredentials((current) => ({ ...current, ...(status.settings || {}), environment: status.environment || status.settings?.environment || 'production' }))
     }).catch(() => setDillikingStatus({ configured: false, environment: 'production' }))
+    fetchM5CStatus().then((status) => {
+      setM5CStatus(status)
+      setM5CCredentials((current) => ({ ...current, ...(status.settings || {}) }))
+    }).catch(() => setM5CStatus({ configured: false }))
   }, [])
 
   const handleSaveSMECredentials = async () => {
@@ -173,6 +180,23 @@ const CourierCredentials = () => {
     } catch (saveError) {
       toast({ title: saveError?.response?.data?.message || 'Could not save Dilliking credentials', status: 'error' })
     } finally { setDillikingSaving(false) }
+  }
+  const handleSaveM5CCredentials = async () => {
+    if ((!m5cCredentials.accountCode.trim() || !m5cCredentials.username.trim() || !m5cCredentials.password || !m5cCredentials.accessKey.trim()) && !m5cStatus?.configured) {
+      toast({ title: 'Enter the M5C account code, username, password and access key', status: 'warning' }); return
+    }
+    setM5CSaving(true)
+    try {
+      const response = await saveM5CCredentials(m5cCredentials)
+      const status = await fetchM5CStatus()
+      setM5CStatus(status)
+      queryClient.invalidateQueries({ queryKey: ['serviceProviders'] })
+      queryClient.invalidateQueries({ queryKey: ['couriers'] })
+      setM5CCredentials((current) => ({ ...current, password: '', accessKey: '', ...(status.settings || {}) }))
+      toast({ title: response?.message || 'M5C production credentials verified and saved', status: 'success' })
+    } catch (saveError) {
+      toast({ title: saveError?.response?.data?.message || 'Could not save M5C credentials', status: 'error' })
+    } finally { setM5CSaving(false) }
   }
   const loginDelhiveryLtl = useLoginDelhiveryLtl()
   const logoutDelhiveryLtl = useLogoutDelhiveryLtl()
@@ -1409,6 +1433,29 @@ const CourierCredentials = () => {
               <Button as={RouterLink} to="/admin/pricing/b2c" variant="outline">B2C Rates</Button>
               <Button as={RouterLink} to="/admin/pricing/b2b" variant="outline">B2B Rates</Button>
             </Flex>
+          </VStack>
+        </Box>
+        <Box borderWidth="1px" borderRadius="lg" p={5} minW="320px" flex="1" maxW="520px" mb={{ base: 4, md: 0 }}>
+          <VStack spacing={3} align="stretch">
+            <Flex justify="space-between" align="center">
+              <Text fontWeight="semibold">M5C Logistics</Text>
+              <Badge colorScheme={m5cStatus?.bookingReady ? 'green' : 'gray'}>{m5cStatus?.status || 'Setup needed'}</Badge>
+            </Flex>
+            <Text fontSize="sm" color="gray.600">Live account services and real international B2C/B2B AWB booking use the M5C production API. Secrets stay on the PunjabShip server.</Text>
+            <Flex gap={3} flexWrap="wrap">
+              <FormControl flex="1"><FormLabel>Account code</FormLabel><Input autoComplete="off" value={m5cCredentials.accountCode} onChange={(event) => setM5CCredentials((current) => ({ ...current, accountCode: event.target.value }))} placeholder={m5cStatus?.configured ? 'Configured; enter only to change' : 'M5C account code'} /></FormControl>
+              <FormControl flex="1"><FormLabel>API username</FormLabel><Input autoComplete="off" value={m5cCredentials.username} onChange={(event) => setM5CCredentials((current) => ({ ...current, username: event.target.value }))} placeholder={m5cStatus?.configured ? 'Configured; enter only to change' : 'M5C API username'} /></FormControl>
+            </Flex>
+            <FormControl><FormLabel>Password {m5cStatus?.configured ? '(blank keeps saved password)' : ''}</FormLabel><Input type="password" autoComplete="new-password" value={m5cCredentials.password} onChange={(event) => setM5CCredentials((current) => ({ ...current, password: event.target.value }))} placeholder={m5cStatus?.configured ? 'Saved securely; never displayed' : 'M5C API password'} /></FormControl>
+            <FormControl><FormLabel>Access key {m5cStatus?.configured ? '(blank keeps saved key)' : ''}</FormLabel><Input type="password" autoComplete="new-password" value={m5cCredentials.accessKey} onChange={(event) => setM5CCredentials((current) => ({ ...current, accessKey: event.target.value }))} placeholder={m5cStatus?.configured ? 'Saved securely; never displayed' : 'M5C API access key'} /></FormControl>
+            <Flex gap={3} flexWrap="wrap">
+              <FormControl flex="1"><FormLabel>KYC type</FormLabel><Input value={m5cCredentials.kycType} onChange={(event) => setM5CCredentials((current) => ({ ...current, kycType: event.target.value }))} placeholder="GST Number" /></FormControl>
+              <FormControl flex="1"><FormLabel>Default KYC number (optional)</FormLabel><Input value={m5cCredentials.kycNumber} onChange={(event) => setM5CCredentials((current) => ({ ...current, kycNumber: event.target.value }))} placeholder={m5cStatus?.settings?.kycNumberConfigured ? 'Configured; blank keeps saved value' : 'Uses seller GST/PAN when blank'} /></FormControl>
+            </Flex>
+            <Text fontSize="xs" color="gray.600">M5C's documented API has no live rate endpoint. PunjabShip B2C/B2B selling rates are editable in admin pricing; the service codes are loaded from the live M5C account.</Text>
+            {m5cStatus?.services?.length > 0 && <Text fontSize="xs" color="gray.600">Live services: {m5cStatus.services.map((service) => `${service.Code} - ${service.Name}`).join(', ')}</Text>}
+            {m5cStatus?.note && <Text fontSize="xs" color="gray.600">{m5cStatus.note}</Text>}
+            <Flex gap={3} flexWrap="wrap"><Button colorScheme="blue" onClick={handleSaveM5CCredentials} isLoading={m5cSaving}>Verify &amp; Save M5C Credentials</Button><Button as={RouterLink} to="/admin/pricing/b2c" variant="outline">B2C Rates</Button><Button as={RouterLink} to="/admin/pricing/b2b" variant="outline">B2B Rates</Button></Flex>
           </VStack>
         </Box>
         <Box borderWidth="1px" borderRadius="lg" p={5} minW="320px" flex="1" maxW="520px" mb={{ base: 4, md: 0 }}>
