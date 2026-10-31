@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
+import { documentWeightKg } from './order-documents.mjs'
 
 const jsonRequest = async (url, { token, method = 'GET', body } = {}) => {
   const response = await fetch(url, {
@@ -16,6 +17,17 @@ const jsonRequest = async (url, { token, method = 'GET', body } = {}) => {
   })
   return { response, payload: await response.json() }
 }
+
+test('document weights convert every B2C gram value to kilograms', () => {
+  assert.equal(documentWeightKg({ type: 'b2c', package_weight: '1' }), 0.001)
+  assert.equal(documentWeightKg({ type: 'b2c', package_weight: 500 }), 0.5)
+  assert.equal(documentWeightKg({ type: 'b2c', package_weight: 1200 }), 1.2)
+})
+
+test('document weights preserve B2B kilograms and use a safe fallback', () => {
+  assert.equal(documentWeightKg({ type: 'b2b', package_weight: 4 }), 4)
+  assert.equal(documentWeightKg({ type: 'b2c' }), 0.5)
+})
 
 test('fresh order documents contain current international order details', { timeout: 30_000 }, async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'punjabship-documents-'))
@@ -73,7 +85,7 @@ test('fresh order documents contain current international order details', { time
     method: 'POST',
     body: {
       order_number: 'DOC-CA-1001', order_date: '2026-10-05', invoice_date: '2026-10-05', invoice_no: 'INV-CA-1001',
-      payment_type: 'prepaid', order_amount: 225, shipping_charges: 25, package_weight: 0.5,
+      payment_type: 'prepaid', order_amount: 225, shipping_charges: 25, package_weight: 500,
       package_length: 10, package_breadth: 10, package_height: 10, courier_id: 91001,
       courier_partner: 'PunjabShip Manual', integration_type: 'manual', currency_code: 'CAD',
       consignee: { name: 'Alex Canada', phone: '+1 613 555 0100', email: 'alex@example.com', address: '111 Wellington Street', city: 'Ottawa', state: 'Ontario', pincode: 'K1A 0A9', country_code: 'CA' },
@@ -88,7 +100,7 @@ test('fresh order documents contain current international order details', { time
   assert.equal(unauthenticated.status, 401)
 
   const expectedByType = {
-    label: ['Alex Canada', 'Ottawa, Ontario, K1A 0A9, Canada', 'VALUE: CAD 225.00'],
+    label: ['Alex Canada', 'Ottawa, Ontario, K1A 0A9, Canada', 'WEIGHT: 0.5 kg', 'VALUE: CAD 225.00'],
     invoice: ['Cotton Shirt', 'SKU: SHIRT-01 | HSN: 610510', 'Invoice Total', 'CAD 225.00', 'Date: 05/10/2026'],
   }
   const previewDirectory = process.env.PUNJABSHIP_PDF_OUTPUT_DIR
@@ -114,5 +126,6 @@ test('fresh order documents contain current international order details', { time
   if (previewDirectory) await writeFile(join(previewDirectory, 'manifest.pdf'), manifestBuffer)
   const manifestPdf = manifestBuffer.toString('latin1')
   assert.match(manifestPdf, /Alex Canada/)
+  assert.match(manifestPdf, /Weight: 0.5 kg/)
   assert.match(manifestPdf, /Destination: Ottawa, Ontario, K1A 0A9, Canada/)
 })

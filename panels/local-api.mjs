@@ -18,6 +18,7 @@ import { createSkylinkClient, validateSkylinkOrder } from './skylink.mjs'
 import { createFlightGoClient, validateFlightGoOrder } from './flightgo.mjs'
 import { createDillikingClient, dillikingCountryName, dillikingServicesForCountry, mapDillikingTracking, validateDillikingOrder } from './dilliking.mjs'
 import { createM5CClient } from './m5c.mjs'
+import { documentWeightKg } from './order-documents.mjs'
 import { createStateStore } from './state-store.mjs'
 import { isMailConfigured, mailStatus, sendOtpEmail, sendPasswordResetEmail } from './mailer.mjs'
 import { csvBoolean, csvHeaderKey, csvNumber, parseCsvObjects } from './csv-imports.mjs'
@@ -1916,8 +1917,7 @@ const createOrderDocumentPdf = (order, type) => {
   const customerShipping = Number(order.shipping_charges || 0)
   const otherCharges = Number(order.other_charges || order.transaction_fee || 0)
   const discount = Number(order.discount || order.total_discount || 0)
-  const rawWeight = Number(order.package_weight || order.weight || order.chargeable_weight || 0)
-  const weight = String(order.type || '').toLowerCase() === 'b2c' && rawWeight > 50 ? rawWeight / 1000 : rawWeight
+  const weight = documentWeightKg(order)
   const products = Array.isArray(order.order_items) ? order.order_items : Array.isArray(order.products) ? order.products : []
   const issueDate = documentDate(order.invoice_date || order.order_date || order.created_at)
   const paymentType = String(order.payment_type || order.order_type || 'prepaid').toUpperCase()
