@@ -31,15 +31,16 @@ for (const candidate of configCandidates) {
   }
 }
 
-const requestWithBody = (url, { method = 'POST', body, timeout = 60000 } = {}) => new Promise((resolveRequest, rejectRequest) => {
+const requestWithBody = (url, { method = 'POST', body, headers = {}, timeout = 60000 } = {}) => new Promise((resolveRequest, rejectRequest) => {
   const target = new URL(url)
-  const payload = body === undefined ? '' : JSON.stringify(body)
+  const payload = body === undefined ? '' : String(body)
   const client = target.protocol === 'http:' ? http : https
   const request = client.request(target, {
     method,
     headers: {
       Accept: 'application/json',
-      ...(body === undefined ? {} : { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }),
+      ...headers,
+      ...(body === undefined ? {} : { 'Content-Length': Buffer.byteLength(payload) }),
     },
   }, (response) => {
     const chunks = []
@@ -213,19 +214,52 @@ export const createM5CClient = ({
   }
   let serviceCache = []
   let serviceCacheAt = 0
+  let accessToken = ''
+  let accessTokenExpiresAt = 0
   const configured = () => Boolean(settings.accountCode && settings.username && settings.password && settings.accessKey)
   const responseData = async (response) => {
     const raw = await response.text()
     let data = null
     try { data = raw ? JSON.parse(raw) : null } catch { data = raw }
-    if (!response.ok) throw Object.assign(new Error(data?.ExceptionMessage || data?.Message || `M5C returned HTTP ${response.status}.`), { statusCode: response.status >= 400 && response.status < 500 ? response.status : 502, providerResponse: data })
+    if (!response.ok) throw Object.assign(new Error(data?.error_description || data?.ExceptionMessage || data?.Message || `M5C returned HTTP ${response.status}.`), { statusCode: response.status >= 400 && response.status < 500 ? response.status : 502, providerResponse: data })
     return data
   }
-  const request = async (path, { method = 'POST', body, timeout = 60000 } = {}) => {
+  const request = async (path, { method = 'POST', body, headers = {}, encoding = 'json', timeout = 60000 } = {}) => {
+    const payload = body === undefined
+      ? undefined
+      : encoding === 'form'
+        ? new URLSearchParams(Object.entries(body).map(([key, value]) => [key, String(value ?? '')])).toString()
+        : JSON.stringify(body)
+    const requestHeaders = {
+      Accept: 'application/json',
+      ...(body === undefined ? {} : { 'Content-Type': encoding === 'form' ? 'application/x-www-form-urlencoded' : 'application/json' }),
+      ...headers,
+    }
     const response = fetchImpl
-      ? await fetchImpl(`${settings.baseUrl}${path}`, { method, headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-      : await requestWithBody(`${settings.baseUrl}${path}`, { method, body, timeout })
+      ? await fetchImpl(`${settings.baseUrl}${path}`, { method, headers: requestHeaders, body: payload })
+      : await requestWithBody(`${settings.baseUrl}${path}`, { method, body: payload, headers: requestHeaders, timeout })
     return responseData(response)
+  }
+  const getAccessToken = async (force = false) => {
+    if (!force && accessToken && accessTokenExpiresAt > Date.now() + 60000) return accessToken
+    const result = await request('/token', {
+      method: 'POST', encoding: 'form', timeout: 30000,
+      body: { UserName: settings.username, Password: settings.password, grant_type: 'password' },
+    })
+    accessToken = text(result?.access_token)
+    if (!accessToken) throw Object.assign(new Error('M5C did not return an access token.'), { statusCode: 502, providerResponse: result })
+    accessTokenExpiresAt = Date.now() + Math.max(300, number(result?.expires_in) || 86400) * 1000
+    return accessToken
+  }
+  const authorizedRequest = async (path, options = {}) => {
+    let token = await getAccessToken()
+    try {
+      return await request(path, { ...options, headers: { ...(options.headers || {}), Authorization: `Bearer ${token}` } })
+    } catch (error) {
+      if (Number(error?.statusCode) !== 401) throw error
+      token = await getAccessToken(true)
+      return request(path, { ...options, headers: { ...(options.headers || {}), Authorization: `Bearer ${token}` } })
+    }
   }
   const listServices = async (force = false) => {
     if (!settings.accountCode) throw Object.assign(new Error('M5C account code is required.'), { statusCode: 400 })
@@ -260,7 +294,8 @@ export const createM5CClient = ({
     })
     if (!configured()) { Object.assign(settings, previous); throw Object.assign(new Error('M5C account code, username, password and access key are required.'), { statusCode: 400 }) }
     serviceCache = []
-    try { await listServices(true); save() } catch (error) { Object.assign(settings, previous); serviceCache = []; throw error }
+    accessToken = ''; accessTokenExpiresAt = 0
+    try { await getAccessToken(true); await listServices(true); save() } catch (error) { Object.assign(settings, previous); serviceCache = []; accessToken = ''; accessTokenExpiresAt = 0; throw error }
     return true
   }
   const createShipment = async (order) => {
@@ -269,7 +304,7 @@ export const createM5CClient = ({
     const missing = validateM5COrder(shipment)
     if (missing.length) throw Object.assign(new Error(`Missing M5C fields: ${missing.join(', ')}`), { statusCode: 400, missingFields: missing })
     const payload = { ValidateAccount: [{ AccountCode: settings.accountCode, Username: settings.username, Password: settings.password, AccessKey: settings.accessKey }], Shipment: [shipment] }
-    const data = await request('/api/shipping/AddShipment', { method: 'POST', body: payload, timeout: 120000 })
+    const data = await authorizedRequest('/api/shipping/AddShipment', { method: 'POST', body: payload, timeout: 120000 })
     const extracted = extractM5CShipment(data)
     if (extracted.status && /fail|error|reject/i.test(extracted.status)) throw Object.assign(new Error(extracted.description || 'M5C rejected the shipment.'), { statusCode: 422, providerResponse: data })
     return { data, shipment, ...extracted }

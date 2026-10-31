@@ -30,6 +30,7 @@ test('M5C lists account services and submits authenticated shipment', async () =
   const calls = []
   const client = createM5CClient({ accountCode: 'A', username: 'U', password: 'P', accessKey: 'K', fetchImpl: async (url, options) => {
     calls.push({ url, options })
+    if (url.endsWith('/token')) return jsonResponse({ access_token: 'TOKEN', token_type: 'bearer', expires_in: 86400 })
     if (url.includes('GetServiceList')) return jsonResponse([{ Code: 'S113', Name: 'Canada UPS', Sector: 'CANADA' }])
     return jsonResponse([{ ShipmentResponses: [{ Status: 'Success' }], shipmentDetails: [{ Awbno: 'M5P123', Label: 'UERG' }] }])
   } })
@@ -37,7 +38,9 @@ test('M5C lists account services and submits authenticated shipment', async () =
   const result = await client.createShipment(order)
   assert.equal(services[0].code, 'S113')
   assert.equal(result.awb, 'M5P123')
-  const submitted = JSON.parse(calls[1].options.body)
+  assert.match(calls[1].options.body, /UserName=U/)
+  const submitted = JSON.parse(calls[2].options.body)
+  assert.equal(calls[2].options.headers.Authorization, 'Bearer TOKEN')
   assert.equal(submitted.ValidateAccount[0].AccessKey, 'K')
   assert.equal(submitted.Shipment[0].ReferenceNumber, 'PS-M5-1')
 })
